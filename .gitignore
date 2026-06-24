@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+workers-sync/wrangler.toml
+.recall-handoff/
+*.pem
+*.key
+*.p12
+.DS_Store

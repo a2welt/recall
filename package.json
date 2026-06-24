@@ -1,0 +1,76 @@
+{
+  "name": "@a2welt/recall",
+  "version": "0.1.0",
+  "description": "Local-first memory for ideas, decisions, projects, and AI coding agents.",
+  "type": "module",
+  "main": "./dist/cli/index.js",
+  "bin": {
+    "recall": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run build:ui && npm run build:server",
+    "build:ui": "vite build",
+    "build:server": "tsc",
+    "dev": "vite",
+    "dev:server": "tsc --watch",
+    "icons": "node scripts/generate-icons.mjs",
+    "test": "npx vitest run",
+    "test:watch": "npx vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "developer-tools",
+    "local-first",
+    "obsidian",
+    "context",
+    "ai-agent"
+  ],
+  "author": "A2Welt",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/A2Welt/Recall.git"
+  },
+  "bugs": {
+    "url": "https://github.com/A2Welt/Recall/issues"
+  },
+  "homepage": "https://github.com/A2Welt/Recall#readme",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.0.2",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "commander": "^12.1.0",
+    "env-paths": "^3.0.0",
+    "glob": "^11.0.0",
+    "lucide-react": "^1.21.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "simple-git": "^3.27.0",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "sharp": "^0.35.2",
+    "typescript": "^5.7.0",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
+  }
+}

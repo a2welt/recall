@@ -1,0 +1,14 @@
+name = "recall-mobile-sync"
+main = "src/index.ts"
+compatibility_date = "2026-06-23"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "recall-mobile-sync"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+PAGES_ORIGIN = "https://REPLACE_WITH_YOUR_PAGES_PROJECT.pages.dev"
+
+[triggers]
+crons = ["17 3 * * *"]

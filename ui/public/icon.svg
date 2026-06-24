@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Recall memory network">
+  <defs>
+    <linearGradient id="bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#243f43"/>
+      <stop offset="1" stop-color="#101b20"/>
+    </linearGradient>
+    <linearGradient id="core" x1="188" y1="170" x2="326" y2="342" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9ba5ff"/>
+      <stop offset="1" stop-color="#5363e6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <g fill="none" stroke="#9ba5ff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 169V112M203 191l-45-45M309 191l45-45M181 256h-64M331 256h64M203 321l-45 45M309 321l45 45M256 343v57" opacity=".8"/>
+  </g>
+  <g fill="#eef0ff">
+    <circle cx="256" cy="99" r="22"/><circle cx="146" cy="134" r="22"/><circle cx="366" cy="134" r="22"/>
+    <circle cx="103" cy="256" r="22"/><circle cx="409" cy="256" r="22"/>
+    <circle cx="146" cy="378" r="22"/><circle cx="366" cy="378" r="22"/><circle cx="256" cy="413" r="22"/>
+  </g>
+  <circle cx="256" cy="256" r="98" fill="url(#core)" stroke="#dfe3ff" stroke-width="14"/>
+  <path d="M225 214c-20 9-29 25-24 43-10 16-5 36 11 46 3 20 23 31 42 23M287 214c20 9 29 25 24 43 10 16 5 36-11 46-3 20-23 31-42 23M256 194v132M224 253h32M288 253h-32M225 291h31M287 291h-31" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

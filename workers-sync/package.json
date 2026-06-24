@@ -1,0 +1,7 @@
+{
+  "name": "recall-mobile-sync",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev", "deploy": "wrangler deploy", "type-check": "tsc --noEmit", "db:init": "wrangler d1 execute recall-mobile-sync --remote --file=schema.sql" },
+  "devDependencies": { "@cloudflare/workers-types": "^4.20260620.0", "typescript": "^5.7.0", "wrangler": "^4.0.0" }
+}
