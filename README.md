@@ -3,8 +3,8 @@
 <h1 align="center">Recall</h1>
 
 <p align="center">
-  <strong>Your decisions should outlive the session that created them.</strong><br />
-  A private, local-first memory system for ideas, decisions, projects, and coding agents.
+  <strong>Your code remembers what changed. Recall remembers why.</strong><br />
+  A local context-memory layer for software decisions and coding agents.
 </p>
 
 <p align="center">
@@ -13,13 +13,15 @@
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-17282c" />
 </p>
 
-Recall captures the reasoning behind your work and brings it back when the context matches. Memories can be connected to a repository, branch, file, project, topic, priority, and lifecycle stage. Use the visual dashboard, the CLI, or the included MCP server from an AI coding tool.
+Six weeks after a feature ships, the code is still there—but its reasoning is gone. Why is the retry limit two? Why was Redis rejected? Which migration already failed? A new developer or coding agent sees the implementation, not the decisions that shaped it.
+
+Recall captures that reasoning while it is fresh, links it to the repository, branch, and file where it matters, then resurfaces it when the same context returns. Use the visual dashboard, CLI, or MCP server from an AI coding tool.
 
 No account is required. The desktop application binds to localhost and stores readable memories in one SQLite database on your computer.
 
 ## Why Recall?
 
-Source code records *what* changed. Issue trackers record *what* was requested. Recall preserves the missing layer: **why a decision was made, what was already tried, and what should happen next**.
+Source control records *what* changed. Issue trackers record *what* was requested. Chat history disappears into old sessions. Recall preserves the missing engineering layer: **why a decision was made, what was rejected, what failed before, and what the next developer must not rediscover**.
 
 - Return to a branch and recover its decisions.
 - Organize memories into projects and lifecycle stages.
@@ -34,7 +36,7 @@ Source code records *what* changed. Issue trackers record *what* was requested. 
 | --- | --- |
 | Local dashboard | Search, capture, projects, lifecycle, priorities, topics, and memory management |
 | Memory galaxy | Interactive canvas graph with topic/project hubs and zoom controls |
-| Context-aware recall | Repository, branch, file, keyword, status, and recency ranking with an explanation |
+| Context-aware recall | Repository, branch, file, semantic meaning, keywords, status, and recency—with an explanation |
 | CLI | Fast capture, recall, ingestion, digest, resolution, and generation commands |
 | MCP server | Shared memory tools for Codex, Claude Code, Cursor, and other MCP clients |
 | AI handoffs | Reviewable specifications, prompts, skills, ZIP export, Ollama/OpenAI/Anthropic-compatible providers |
@@ -65,18 +67,24 @@ node dist/cli/index.js serve --open
 
 The dashboard is available at `http://127.0.0.1:4321`. The server listens only on the loopback interface.
 
-Recall currently uses local SQLite FTS5 keyword search plus repository context. The embedding engine is included for future semantic indexing, but it is not used by normal recall queries yet.
+The first meaning-based query builds a persistent local semantic index and may download the embedding model once. Embeddings and inference remain on your machine; later searches reuse the stored index.
 
-## A two-minute workflow
+## The workflow: leave reasoning where future work can find it
 
 ```bash
 cd ~/code/my-app
-recall add "Use PostgreSQL because the reporting model depends on JSONB indexes"
-recall recall "PostgreSQL"
-recall ingest ~/notes
-recall list --open
-recall serve --open
+
+# Capture the decision where it was made. Repository and branch are automatic.
+recall add "Keep retries at two: a third attempt exceeds the payment provider's idempotency window" --file src/payments/retry.ts
+
+# Weeks later, ask in different words from the same repository.
+recall recall "why only two payment retries"
+
+# See every unresolved decision attached to this codebase.
+recall list --repo --open
 ```
+
+The same flow works through MCP: an agent records a significant decision with `capture_idea`, then a future session calls `recall_ideas` with its current repository, branch, and file. Recall becomes continuity between sessions without giving the agent access to unrelated memories.
 
 ## CLI reference
 
@@ -114,14 +122,44 @@ A source checkout can be connected to any MCP client with:
 
 The MCP server exposes:
 
-- `capture_idea` — store a memory from an agent session.
+- `capture_idea` — store a memory from an agent session. Repository and branch are auto-detected from the server's working directory (a stdio MCP server runs inside the agent's workspace), so the agent can omit context entirely.
 - `recall_ideas` — retrieve relevant decisions for the current context.
 - `list_open_ideas` — inspect unresolved work.
 - `resolve_idea` — close a completed thread.
 
-Suggested agent instruction:
+### Make agents capture decisions automatically
 
-> Before implementation, call `recall_ideas` with the current repository and branch. Use returned decisions as context, but verify them against the current code.
+MCP tools are model-invoked: an agent only records a decision when it chooses to call `capture_idea`. To make capture effectively automatic, add a standing instruction to your agent's project memory — `CLAUDE.md` for Claude Code, `AGENTS.md` for Codex and Cursor. Paste this block:
+
+```md
+## Recall memory (MCP)
+
+This workspace has the `recall` MCP server connected.
+
+- **At the start of a task**, call `recall_ideas` with the current branch to load prior
+  decisions. Treat them as context, but verify against the current code.
+- **Whenever you make a significant decision** — choosing an approach, rejecting an
+  alternative, recording a known limitation, or noting why something failed — immediately
+  call `capture_idea` with a 1–3 sentence summary. Repository and branch are detected
+  automatically; pass `file` when the decision is local to one file.
+- **Do not** capture routine steps, restated requirements, or anything already obvious
+  from the code. One memory per genuine decision.
+- **When a captured thread is resolved**, call `resolve_idea` with its id.
+```
+
+For **deterministic** capture that does not depend on the model remembering, Claude Code [hooks](https://docs.claude.com/en/docs/claude-code/hooks) can shell out to the CLI on a `Stop` event:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "recall add \"Session summary: <fill in>\"" }] }
+    ]
+  }
+}
+```
+
+The CLI captures git context from the current directory, so hook-driven captures are repo-scoped automatically. Codex has no hook system; rely on the `AGENTS.md` instruction there.
 
 ## How context-aware recall works
 
@@ -129,7 +167,7 @@ Recall combines several signals instead of treating memory as a flat notes list:
 
 1. Repository, branch, and file proximity.
 2. SQLite FTS5 keyword relevance.
-3. Optional local semantic similarity.
+3. Persistent, on-device semantic similarity.
 4. Open/resolved status and recency.
 
 Every result includes a short reason explaining why it surfaced. Recall does not silently read arbitrary repository files when generating AI handoffs; only the selected memory and its stored metadata are sent.

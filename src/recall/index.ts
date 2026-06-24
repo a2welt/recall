@@ -1,15 +1,8 @@
 /**
  * Recall ranking engine.
  *
- * Blends three signals into a single 0–1 score:
- *  1. Context match  (50%) — same repo / branch / file (strongest signal)
- *  2. FTS5 keyword   (35%) — BM25 rank from SQLite full-text search, position-normalised
- *  3. Status+recency (15%) — open ideas up, half-life decay over 14 days
- *
- * Semantic (dense) embeddings are not used by default — FTS5 with Porter
- * stemming gives good recall for personal-scale idea stores. When
- * RECALL_SEMANTIC=1 is set and onnxruntime is available, dense search kicks in
- * via vectorSearch() as an additional signal (future enhancement).
+ * Blends repository/file context, FTS5 keywords, on-device semantic
+ * similarity, status, and recency into one explainable score.
  */
 
 import type { DatabaseSync } from "node:sqlite";
@@ -17,12 +10,14 @@ import {
   ftsSearch,
   getIdeasByIds,
   getRecentIdeas,
+  vectorSearch,
 } from "../db/index.js";
 import type { IdeaRow } from "../db/index.js";
 import type { RecalledIdea, RecallContext } from "../types.js";
 
-const W_CONTEXT  = 0.50;
-const W_KEYWORD  = 0.35;
+const W_CONTEXT  = 0.35;
+const W_KEYWORD  = 0.30;
+const W_SEMANTIC = 0.20;
 const W_RECENCY  = 0.10;
 const W_STATUS   = 0.05;
 
@@ -61,12 +56,15 @@ function basename(p: string): string {
 function buildReason(
   contextReason: string,
   keywordScore: number,
+  semanticScore: number,
   idea: IdeaRow
 ): string {
   const parts: string[] = [];
   if (contextReason)           parts.push(contextReason);
   if (keywordScore > 0.7)      parts.push("strong keyword match");
   else if (keywordScore > 0.3) parts.push("keyword match");
+  if (semanticScore > 0.65)     parts.push("strong semantic match");
+  else if (semanticScore >= 0.18) parts.push("semantic match");
   if (idea.status === "open")  parts.push("open thread");
   return parts.join("; ") || "recent capture";
 }
@@ -75,6 +73,7 @@ export interface RecallOptions {
   query?: string;
   context?: RecallContext;
   limit?: number;
+  queryEmbedding?: number[];
 }
 
 export async function recallIdeas(
@@ -102,8 +101,16 @@ export async function recallIdeas(
     ])
   );
 
+  const semanticResults = options.queryEmbedding ? vectorSearch(db, options.queryEmbedding, limit * 4) : [];
+  const semanticScoreMap = new Map(
+    semanticResults
+      .map((result) => [result.idea_id, Math.max(0, Math.min(1, 1 - result.distance))] as const)
+      .filter(([, similarity]) => similarity >= 0.2)
+  );
+
   // Collect candidate IDs: FTS hits first, then recent ideas as fallback
   const candidateIds = new Set<string>(ftsResults.map((r) => r.idea_id));
+  semanticScoreMap.forEach((_score, id) => candidateIds.add(id));
   // An explicit search must not degrade into a list of unrelated recent
   // memories. Recent/context fallback is only appropriate for `recall recall`
   // without a query.
@@ -115,17 +122,26 @@ export async function recallIdeas(
 
   if (candidateIds.size === 0) return [];
 
-  const ideas = getIdeasByIds(db, [...candidateIds]);
+  const ideas = getIdeasByIds(db, [...candidateIds]).filter((idea) => {
+    if (!options.query?.trim()) return true;
+    if ((ftsPositionMap.get(idea.id) ?? 0) > 0) return true;
+    const semanticScore = semanticScoreMap.get(idea.id) ?? 0;
+    const sameRepo = Boolean(context.repo && idea.repo_path && norm(context.repo) === norm(idea.repo_path));
+    const minimumSemanticScore = sameRepo ? 0.18 : context.repo ? 0.45 : 0.35;
+    return semanticScore >= minimumSemanticScore;
+  });
 
   const scored = ideas.map((idea) => {
     const ctx = contextScore(idea, context);
     const keywordScore = ftsPositionMap.get(idea.id) ?? 0;
+    const semanticScore = semanticScoreMap.get(idea.id) ?? 0;
     const recency = recencyScore(idea.updated_at);
     const statusBonus = idea.status === "open" ? 1 : 0;
 
     const score =
       W_CONTEXT  * ctx.score +
       W_KEYWORD  * keywordScore +
+      W_SEMANTIC * semanticScore +
       W_RECENCY  * recency +
       W_STATUS   * statusBonus;
 
@@ -134,12 +150,13 @@ export async function recallIdeas(
       score,
       contextReason: ctx.reason,
       keywordScore,
+      semanticScore,
     };
   });
 
   scored.sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, limit).map(({ idea, score, contextReason, keywordScore }) => ({
+  return scored.slice(0, limit).map(({ idea, score, contextReason, keywordScore, semanticScore }) => ({
     idea: {
       ...idea,
       context: {
@@ -154,6 +171,6 @@ export async function recallIdeas(
       },
     },
     score,
-    reason: buildReason(contextReason, keywordScore, idea),
+    reason: buildReason(contextReason, keywordScore, semanticScore, idea),
   }));
 }

@@ -12,6 +12,7 @@ import { createZip } from "../ai/zip.js";
 import type { AiConfig, ArtifactName, HandoffTarget } from "../ai/types.js";
 import { AiError } from "../ai/types.js";
 import { getMobileSyncConfig, pullMobileCaptures, redactedMobileConfig, setupMobileSync } from "../mobile/sync.js";
+import { prepareSemanticQuery } from "../embed/semantic.js";
 
 type Handler = (req: IncomingMessage, res: ServerResponse, body: unknown) => Promise<void>;
 
@@ -72,8 +73,10 @@ const routes: Record<string, Record<string, Handler>> = {
       const { query, repo, branch, file, limit } = body as {
         query?: string; repo?: string; branch?: string; file?: string; limit?: number;
       };
-      const results = await recallIdeas(getDb(), {
-        query, context: { repo, branch, file }, limit: limit ?? 10,
+      const db = getDb();
+      const queryEmbedding = query?.trim() ? await prepareSemanticQuery(db, query) : undefined;
+      const results = await recallIdeas(db, {
+        query, context: { repo, branch, file }, limit: limit ?? 10, queryEmbedding,
       });
       json(res, 200, results.map((r) => ({
         id: r.idea.id,

@@ -90,6 +90,13 @@ describe("keyword search (FTS5)", () => {
     const results = await recallIdeas(db, { query: "postgres database", context: { repo: "/repos/myapp", branch: "main" }, limit: 5 });
     expect(results).toEqual([]);
   });
+  it("uses a semantic vector to match a differently worded decision", async () => {
+    insertIdea(db, { id: "postgres-decision", content: "We selected PostgreSQL for JSONB indexes", source: "cli", embedding: [1, 0], context: { repo_path: "/repos/myapp", branch: "main" } });
+    insertIdea(db, { id: "meeting-note", content: "Team meeting on Tuesday", source: "cli", embedding: [0, 1], context: { repo_path: "/repos/myapp", branch: "main" } });
+    const results = await recallIdeas(db, { query: "database choice", queryEmbedding: [1, 0], context: { repo: "/repos/myapp", branch: "main" }, limit: 5 });
+    expect(results.map((result) => result.idea.id)).toEqual(["postgres-decision"]);
+    expect(results[0].reason).toContain("semantic match");
+  });
 });
 
 describe("edge cases", () => {

@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { getGitContext } from "../git/index.js";
 import { recallIdeas } from "../recall/index.js";
 import type { RecalledIdea } from "../types.js";
+import { prepareSemanticQuery } from "../embed/semantic.js";
 
 export interface RecallOptions {
   limit?: number;
@@ -35,6 +36,18 @@ export async function recallCommand(
 
   // Detect current git context to boost context-matched ideas
   const gitCtx = await getGitContext();
+  let queryEmbedding: number[] | undefined;
+  if (query?.trim()) {
+    let announced = false;
+    try {
+      queryEmbedding = await prepareSemanticQuery(db, query, (completed, total) => {
+        if (!announced) { console.log(`Preparing local semantic index for ${total} memories…`); announced = true; }
+        if (completed === total) console.log("Semantic index ready.");
+      });
+    } catch (error) {
+      console.error(`Semantic search unavailable; using keywords only: ${(error as Error).message}`);
+    }
+  }
 
   const results = await recallIdeas(db, {
     query,
@@ -43,6 +56,7 @@ export async function recallCommand(
       branch: gitCtx.branch ?? undefined,
     },
     limit,
+    queryEmbedding,
   });
 
   if (results.length === 0) {

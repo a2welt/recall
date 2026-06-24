@@ -335,6 +335,20 @@ export function vectorSearch(db: DatabaseSync, q: number[], limit = 20): VecSear
     .slice(0, limit);
 }
 
+export function listIdeasWithoutEmbeddings(db: DatabaseSync): Array<{ id: string; content: string }> {
+  return db.prepare(`
+    SELECT i.id, i.content FROM ideas i
+    LEFT JOIN idea_embeddings e ON e.idea_id = i.id
+    WHERE e.idea_id IS NULL
+    ORDER BY i.created_at ASC
+  `).all() as unknown as Array<{ id: string; content: string }>;
+}
+
+export function saveIdeaEmbedding(db: DatabaseSync, ideaId: string, embedding: number[]): void {
+  db.prepare(`INSERT OR REPLACE INTO idea_embeddings (idea_id, embedding) VALUES (?, ?)`)
+    .run(ideaId, JSON.stringify(embedding));
+}
+
 // ─── Cosine distance helper ───────────────────────────────────────────────────
 
 function cosDist(a: number[], b: number[]): number {

@@ -20,7 +20,10 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import { getDb, insertIdea, resolveIdea, listIdeas } from "../db/index.js";
 import { recallIdeas } from "../recall/index.js";
-import type { CaptureContext, RecallContext } from "../types.js";
+import { getGitContext } from "../git/index.js";
+import type { CaptureContext, GitContext } from "../types.js";
+import type { RecallContext } from "../types.js";
+import { prepareSemanticQuery } from "../embed/semantic.js";
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -30,7 +33,9 @@ const TOOLS = [
     description:
       "Store a thought, decision, or context note from the current coding session. " +
       "Call this whenever you (the agent) make a significant architectural choice, " +
-      "identify a known limitation, or want to leave a breadcrumb for the next session.",
+      "identify a known limitation, or want to leave a breadcrumb for the next session. " +
+      "Repository and branch are auto-detected from the working directory, so you may " +
+      "omit context entirely; pass it only to override or attach a file/error.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -40,10 +45,10 @@ const TOOLS = [
         },
         context: {
           type: "object",
-          description: "Optional code context to attach.",
+          description: "Optional code context. Repo and branch are auto-detected when omitted.",
           properties: {
-            repo: { type: "string", description: "Absolute path to the repo root." },
-            branch: { type: "string", description: "Current git branch." },
+            repo: { type: "string", description: "Absolute path to the repo root (auto-detected if omitted)." },
+            branch: { type: "string", description: "Current git branch (auto-detected if omitted)." },
             file: { type: "string", description: "File path being worked on." },
             error: { type: "string", description: "Error text if this is an error note." },
           },
@@ -113,6 +118,36 @@ const TOOLS = [
 
 // ─── Tool handlers ────────────────────────────────────────────────────────────
 
+/** Normalise a filesystem path for comparison across OSes and trailing slashes. */
+function samePath(a: string, b: string): boolean {
+  const n = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return n(a) === n(b);
+}
+
+/**
+ * Merge agent-supplied context with auto-detected git context.
+ *
+ * The agent's explicit values always win. Detected branch and commit are only
+ * borrowed when they belong to the same repository we are recording — if the
+ * agent named a different repo, we must not attach this directory's branch.
+ *
+ * Exported for testing without touching git or the process cwd.
+ */
+export function resolveCaptureContext(
+  ctx: CaptureContext,
+  detected: GitContext
+): { repo_path: string | null; branch: string | null; commit_hash: string | null; file_path: string | null; error_text: string | null } {
+  const repoMatches =
+    !ctx.repo || (detected.repo_path != null && samePath(ctx.repo, detected.repo_path));
+  return {
+    repo_path: ctx.repo ?? detected.repo_path ?? null,
+    branch: ctx.branch ?? (repoMatches ? detected.branch : null) ?? null,
+    commit_hash: repoMatches ? detected.commit_hash ?? null : null,
+    file_path: ctx.file ?? null,
+    error_text: ctx.error ?? null,
+  };
+}
+
 async function handleCaptureIdea(args: {
   content: string;
   context?: CaptureContext;
@@ -121,22 +156,22 @@ async function handleCaptureIdea(args: {
   const id = uuidv4();
   const ctx = args.context ?? {};
 
-  insertIdea(db, {
-    id,
-    content: args.content,
-    source: "mcp",
-    context: {
-      repo_path: ctx.repo ?? null,
-      branch: ctx.branch ?? null,
-      file_path: ctx.file ?? null,
-      error_text: ctx.error ?? null,
-    },
-  });
+  // Auto-detect git context from the working directory. A stdio MCP server is
+  // spawned inside the agent's workspace, so process.cwd() is usually the repo
+  // the agent is working in. Agent-supplied values still take precedence.
+  const detected = await getGitContext();
+  const context = resolveCaptureContext(ctx, detected);
+
+  insertIdea(db, { id, content: args.content, source: "mcp", context });
 
   return JSON.stringify({
     id,
     status: "captured",
-    message: `Idea stored with id ${id}.`,
+    repo: context.repo_path,
+    branch: context.branch,
+    message: context.repo_path
+      ? `Idea stored with id ${id} (repo: ${context.repo_path}${context.branch ? `, branch: ${context.branch}` : ""}).`
+      : `Idea stored with id ${id} (no git context detected).`,
   });
 }
 
@@ -146,10 +181,12 @@ async function handleRecallIdeas(args: {
   limit?: number;
 }): Promise<string> {
   const db = getDb();
+  const queryEmbedding = args.query?.trim() ? await prepareSemanticQuery(db, args.query) : undefined;
   const results = await recallIdeas(db, {
     query: args.query,
     context: args.context ?? {},
     limit: args.limit ?? 5,
+    queryEmbedding,
   });
 
   if (results.length === 0) {
