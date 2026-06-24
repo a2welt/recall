@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { getDb, insertIdea, resolveIdea, listIdeas, getRecentIdeas, listProjects, createProject, updateProjectStatus, updateIdeaWorkflow, assignIdeaProject, deleteIdea } from "../db/index.js";
+import type { IdeaRow } from "../db/index.js";
 import { recallIdeas } from "../recall/index.js";
 import { getGitContext } from "../git/index.js";
 import { v4 as uuidv4 } from "uuid";
@@ -28,6 +29,22 @@ function err(res: ServerResponse, status: number, message: string): void {
   json(res, status, { error: message });
 }
 
+/**
+ * Nest the flat repo/branch/file columns into a `context` object the dashboard
+ * can read. `listIdeas`/`getRecentIdeas` return flat IdeaRows; the UI groups and
+ * displays by `idea.context.repo_path`, so this shape must match the recall API.
+ */
+function toClientIdea(row: IdeaRow) {
+  return {
+    ...row,
+    context: {
+      repo_path: row.repo_path ?? null,
+      branch: row.branch ?? null,
+      file_path: row.file_path ?? null,
+    },
+  };
+}
+
 async function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let raw = "";
@@ -43,7 +60,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 const routes: Record<string, Record<string, Handler>> = {
   "/api/ideas": {
     GET: async (_req, res) => {
-      json(res, 200, listIdeas(getDb()));
+      json(res, 200, listIdeas(getDb()).map(toClientIdea));
     },
     POST: async (_req, res, body) => {
       const { content, file, priority, category, topic, project_id, workflow_status } = body as {
@@ -102,7 +119,8 @@ const routes: Record<string, Record<string, Handler>> = {
       const gitCtx = await getGitContext();
       const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
       const recent = getRecentIdeas(db, 20, gitCtx.repo_path ?? undefined)
-        .filter((r) => r.created_at >= cutoff);
+        .filter((r) => r.created_at >= cutoff)
+        .map(toClientIdea);
       const resurfaced = await recallIdeas(db, {
         context: { repo: gitCtx.repo_path ?? undefined, branch: gitCtx.branch ?? undefined },
         limit: 5,

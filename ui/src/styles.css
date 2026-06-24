@@ -118,6 +118,17 @@ button { color: inherit; }
 
 .recall-banner { position: relative; min-height: 180px; padding: 28px; overflow: hidden; border-radius: 30px; background: linear-gradient(135deg, #4a55e9, #6254ef); color: #fff; box-shadow: 0 22px 45px rgba(69, 73, 206, .22); }
 .project-overview { margin-bottom: 22px; padding: 20px; border: 1px solid rgba(255,255,255,.7); border-radius: 24px; background: rgba(255,255,255,.5); }.project-overview > .section-heading { margin-bottom: 10px; }.project-overview > div:not(.section-heading) { padding: 10px 0; display: grid; grid-template-columns: 10px 1fr; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }.project-overview > div > i { width: 10px; height: 10px; border-radius: 3px; }.project-overview > div > span { display: flex; flex-direction: column; }.project-overview > div strong { font-size: 12px; }.project-overview > div small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.workspace-nav { margin-top: 18px; }
+.workspace-empty { padding: 6px 12px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.workspace-overview .section-heading { align-items: flex-start; }
+.workspace-overview .section-heading button { border: 0; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+.workspace-overview > button { width: 100%; padding: 10px 0; display: grid; grid-template-columns: 10px 1fr; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; cursor: pointer; }
+.workspace-overview > button:last-child { border-bottom: 0; }
+.workspace-overview > button.active strong { color: var(--indigo-dark); }
+.workspace-overview > button i { width: 10px; height: 10px; border-radius: 3px; }
+.workspace-overview > button span { display: flex; flex-direction: column; min-width: 0; }
+.workspace-overview > button strong { font-size: 12px; }
+.workspace-overview > button small { margin-top: 2px; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .banner-copy { position: relative; z-index: 2; width: 64%; }
 .banner-copy > span { display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: .8; }
 .banner-copy h3 { margin: 16px 0 22px; font-size: 21px; line-height: 1.2; }

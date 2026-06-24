@@ -79,6 +79,7 @@ export function App() {
   const [celebrating, setCelebrating] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectScope, setProjectScope] = useState<string>("all");
+  const [repoScope, setRepoScope] = useState<string>("all");
   const [creatingProject, setCreatingProject] = useState(false);
   const [handoffIdea, setHandoffIdea] = useState<Idea | null>(null);
 
@@ -101,8 +102,30 @@ export function App() {
 
   const go = (next: Page) => { setPage(next); setSidebarOpen(false); };
   const repoName = context.repo_path?.replace(/\\/g, "/").split("/").pop() || "Local workspace";
-  const scopedIdeas = projectScope === "all" ? ideas : projectScope === "inbox" ? ideas.filter((idea) => !idea.project_id) : ideas.filter((idea) => idea.project_id === projectScope);
-  const scopeName = projectScope === "all" ? "All memories" : projectScope === "inbox" ? "Inbox" : projects.find((project) => project.id === projectScope)?.name || "Project";
+
+  // Workspaces are derived from the memories themselves: every idea with a
+  // repo_path contributes to a repo workspace. This surfaces every codebase
+  // that has memories, not just the directory the server was launched from.
+  const workspaces = useMemo(() => {
+    const map = new Map<string, { path: string; name: string; count: number; open: number; branches: Set<string> }>();
+    for (const idea of ideas) {
+      const repo = idea.context?.repo_path;
+      if (!repo) continue;
+      const entry = map.get(repo) ?? { path: repo, name: repo.replace(/\\/g, "/").split("/").pop() || repo, count: 0, open: 0, branches: new Set<string>() };
+      entry.count += 1;
+      if (idea.status === "open") entry.open += 1;
+      if (idea.context?.branch) entry.branches.add(idea.context.branch);
+      map.set(repo, entry);
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  }, [ideas]);
+  const noRepoCount = ideas.filter((idea) => !idea.context?.repo_path).length;
+
+  const projectScoped = projectScope === "all" ? ideas : projectScope === "inbox" ? ideas.filter((idea) => !idea.project_id) : ideas.filter((idea) => idea.project_id === projectScope);
+  const scopedIdeas = repoScope === "all" ? projectScoped : repoScope === "none" ? projectScoped.filter((idea) => !idea.context?.repo_path) : projectScoped.filter((idea) => idea.context?.repo_path === repoScope);
+  const projectName = projectScope === "all" ? "All memories" : projectScope === "inbox" ? "Inbox" : projects.find((project) => project.id === projectScope)?.name || "Project";
+  const repoLabel = repoScope === "all" ? "" : repoScope === "none" ? "No repository" : workspaces.find((workspace) => workspace.path === repoScope)?.name || "Repository";
+  const scopeName = repoLabel ? `${repoLabel}${projectScope === "all" ? "" : ` · ${projectName}`}` : projectName;
   const updateWorkflow = async (id: string, status: WorkflowStatus) => { await api(`/api/ideas/${id}/workflow`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }); setIdeas((all) => all.map((idea) => idea.id === id ? { ...idea, workflow_status: status } : idea)); };
 
   return (
@@ -130,6 +153,14 @@ export function App() {
           {projects.filter((project) => project.status !== "completed").slice(0, 6).map((project) => <button key={project.id} className={projectScope === project.id ? "active" : ""} onClick={() => { setProjectScope(project.id); go("home"); }}><i style={{ background: project.color }} /><span>{project.name}</span><small>{ideas.filter((idea) => idea.project_id === project.id).length}</small></button>)}
         </div>
 
+        <div className="project-nav workspace-nav">
+          <div className="project-nav-head"><span>Workspaces</span></div>
+          <button className={repoScope === "all" ? "active" : ""} onClick={() => setRepoScope("all")}><FolderGit2 size={15} /><span>All repos</span><small>{ideas.length}</small></button>
+          {workspaces.slice(0, 6).map((workspace) => <button key={workspace.path} title={workspace.path} className={repoScope === workspace.path ? "active" : ""} onClick={() => { setRepoScope(workspace.path); go("home"); }}><GitBranch size={15} /><span>{workspace.name}</span><small>{workspace.count}</small></button>)}
+          {noRepoCount > 0 && <button className={repoScope === "none" ? "active" : ""} onClick={() => setRepoScope("none")}><FolderX size={15} /><span>No repo</span><small>{noRepoCount}</small></button>}
+          {workspaces.length === 0 && noRepoCount === 0 && <p className="workspace-empty">Capture from the CLI or an agent to populate repos.</p>}
+        </div>
+
         <div className="workspace-card">
           <span className="avatar"><FolderGit2 size={18} /></span>
           <span className="workspace-copy"><strong>{repoName}</strong><small>{context.branch || "No git branch"}</small></span>
@@ -153,7 +184,7 @@ export function App() {
 
         {error && <div className="error-banner">{error}<button onClick={() => void loadIdeas()}>Try again</button></div>}
         <div className="page-stage">
-          {page === "home" && <HomePage ideas={scopedIdeas} loading={loading} go={go} select={setSelected} generate={setHandoffIdea} projects={projects} projectScope={projectScope} updateWorkflow={updateWorkflow} />}
+          {page === "home" && <HomePage ideas={scopedIdeas} loading={loading} go={go} select={setSelected} generate={setHandoffIdea} projects={projects} projectScope={projectScope} updateWorkflow={updateWorkflow} workspaces={workspaces} repoScope={repoScope} selectRepo={(path) => setRepoScope(path)} />}
           {page === "galaxy" && <GalaxyPage ideas={scopedIdeas} select={setSelected} />}
           {page === "capture" && <CapturePage projects={projects} defaultProject={projectScope !== "all" && projectScope !== "inbox" ? projectScope : ""} onCreated={(idea) => { if (ideas.length === 0) setCelebrating(true); setIdeas((current) => [idea, ...current]); go("home"); }} />}
           {page === "library" && <LibraryPage ideas={scopedIdeas} loading={loading} select={setSelected} generate={setHandoffIdea} updateWorkflow={updateWorkflow} />}
@@ -172,7 +203,9 @@ export function App() {
   );
 }
 
-function HomePage({ ideas, loading, go, select, generate, projects, projectScope, updateWorkflow }: { ideas: Idea[]; loading: boolean; go: (page: Page) => void; select: (idea: Idea) => void; generate: (idea: Idea) => void; projects: Project[]; projectScope: string; updateWorkflow: (id: string, status: WorkflowStatus) => Promise<void> }) {
+type Workspace = { path: string; name: string; count: number; open: number; branches: Set<string> };
+
+function HomePage({ ideas, loading, go, select, generate, projects, projectScope, updateWorkflow, workspaces, repoScope, selectRepo }: { ideas: Idea[]; loading: boolean; go: (page: Page) => void; select: (idea: Idea) => void; generate: (idea: Idea) => void; projects: Project[]; projectScope: string; updateWorkflow: (id: string, status: WorkflowStatus) => Promise<void>; workspaces: Workspace[]; repoScope: string; selectRepo: (path: string) => void }) {
   const stats = useMemo(() => ({
     open: ideas.filter((idea) => idea.status === "open").length,
     resolved: ideas.filter((idea) => idea.status === "resolved").length,
@@ -227,6 +260,7 @@ function HomePage({ ideas, loading, go, select, generate, projects, projectScope
       </section>
 
       <aside className="home-rail">
+        {workspaces.length > 0 && <div className="project-overview workspace-overview"><div className="section-heading"><div><h2>Workspaces</h2><p>Repositories with memories</p></div>{repoScope !== "all" && <button onClick={() => selectRepo("all")}>Clear</button>}</div>{workspaces.slice(0, 5).map((workspace) => <button key={workspace.path} className={repoScope === workspace.path ? "active" : ""} title={workspace.path} onClick={() => selectRepo(repoScope === workspace.path ? "all" : workspace.path)}><i style={{ background: "#6674ef" }} /><span><strong>{workspace.name}</strong><small>{workspace.count} memories · {workspace.open} open · {workspace.branches.size || 0} branch{workspace.branches.size === 1 ? "" : "es"}</small></span></button>)}</div>}
         {projectScope === "all" && projects.length > 0 && <div className="project-overview"><div className="section-heading"><div><h2>Projects</h2><p>Your active workspaces</p></div></div>{projects.filter((project) => project.status === "active").slice(0, 4).map((project) => <div key={project.id}><i style={{ background: project.color }} /><span><strong>{project.name}</strong><small>{project.memory_count || 0} memories · {project.active_count || 0} in progress</small></span></div>)}</div>}
         <div className="recall-banner">
           <div className="banner-copy"><span><Sparkles size={16} /> Context aware</span><h3>Find the decision behind the code.</h3><button onClick={() => go("galaxy")}>Explore memory <ArrowRight size={16} /></button></div>
