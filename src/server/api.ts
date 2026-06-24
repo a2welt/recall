@@ -70,6 +70,16 @@ const routes: Record<string, Record<string, Handler>> = {
       if (!content?.trim()) return err(res, 400, "content is required");
       const db = getDb();
       const id = uuidv4();
+      // Dashboard captures inherit the repository the server was launched from,
+      // so they appear under that workspace. A git-less serve cwd yields nulls
+      // (the memory lands in "No repo"), and an explicit file still attaches.
+      const gitCtx = await getGitContext();
+      const context = {
+        repo_path: gitCtx.repo_path,
+        branch: gitCtx.branch,
+        commit_hash: gitCtx.commit_hash,
+        file_path: file ?? null,
+      };
       insertIdea(db, {
         id, content, source: "cli",
         priority: (priority as IdeaPriority) || "medium",
@@ -77,11 +87,9 @@ const routes: Record<string, Record<string, Handler>> = {
         topic: topic?.trim() || inferTopic(content),
         project_id: project_id || null,
         workflow_status: (workflow_status as WorkflowStatus) || "backlog",
-        // Dashboard captures are general memories unless the user explicitly
-        // supplies a file. The server's own cwd is not the memory's context.
-        context: { file_path: file ?? null },
+        context,
       });
-      json(res, 201, { id, content, status: "open", priority: priority || "medium", category: category || "note", topic: topic?.trim() || inferTopic(content), project_id: project_id || null, workflow_status: workflow_status || "backlog" });
+      json(res, 201, { id, content, status: "open", priority: priority || "medium", category: category || "note", topic: topic?.trim() || inferTopic(content), project_id: project_id || null, workflow_status: workflow_status || "backlog", context: { repo_path: context.repo_path, branch: context.branch, file_path: context.file_path } });
     },
   },
 

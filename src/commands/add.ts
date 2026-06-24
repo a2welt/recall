@@ -36,4 +36,13 @@ export async function addIdea(content: string, opts: AddOptions): Promise<void> 
   if (gitCtx.repo_path) console.log(`  repo:   ${gitCtx.repo_path}`);
   if (gitCtx.branch) console.log(`  branch: ${gitCtx.branch}`);
   if (opts.file) console.log(`  file:   ${opts.file}`);
+
+  // Make a missing repo context obvious rather than silently saving a
+  // context-less memory — the most common cause is running outside a repo.
+  if (!gitCtx.repo_path) {
+    console.log("  ⚠ no git repository detected — saved without repo/branch context.");
+    console.log(`    Run 'recall add' from inside a git repo, or pass --repo <path>.`);
+  } else if (!gitCtx.branch) {
+    console.log("  ⚠ repository detected but no branch (unborn branch or detached HEAD).");
+  }
 }
