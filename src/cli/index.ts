@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --no-warnings
 
 // Suppress Node.js experimental-feature warnings (node:sqlite) from cluttering CLI output.
 process.on("warning", (w) => {
@@ -26,6 +26,7 @@ import { ingestCommand } from "../commands/ingest.js";
 import { recallCommand } from "../commands/recall.js";
 import { listCommand } from "../commands/list.js";
 import { resolveCommand } from "../commands/resolve.js";
+import { detachCommand } from "../commands/detach.js";
 import { digestCommand } from "../commands/digest.js";
 import { mcpCommand } from "../commands/mcp-cmd.js";
 import { serveCommand } from "../commands/serve.js";
@@ -88,6 +89,13 @@ program
   .description("Mark an idea as resolved. Accepts full UUID or 8-char prefix.")
   .action(async (id: string) => {
     await run(resolveCommand(id));
+  });
+
+program
+  .command("detach <id>")
+  .description("Remove repository, branch, file, commit, and error context from a memory.")
+  .action(async (id: string) => {
+    await run(detachCommand(id));
   });
 
 // ── recall digest ─────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ function formatIdea(r: RecalledIdea, index: number): string {
   if (idea.content.length > 200) lines.push("    …");
 
   const meta: string[] = [];
+  if (idea.context?.repo_path) meta.push(`repo: ${idea.context.repo_path}`);
   if (idea.context?.branch) meta.push(`branch: ${idea.context.branch}`);
   if (idea.context?.file_path) meta.push(`file: ${idea.context.file_path}`);
   if (idea.status === "open") meta.push("open");

@@ -65,14 +65,14 @@ node dist/cli/index.js serve --open
 
 The dashboard is available at `http://127.0.0.1:4321`. The server listens only on the loopback interface.
 
-> The first semantic-search operation downloads the default embedding model (approximately 30 MB) into the Hugging Face cache. Inference runs locally after that.
+Recall currently uses local SQLite FTS5 keyword search plus repository context. The embedding engine is included for future semantic indexing, but it is not used by normal recall queries yet.
 
 ## A two-minute workflow
 
 ```bash
 cd ~/code/my-app
 recall add "Use PostgreSQL because the reporting model depends on JSONB indexes"
-recall recall "database choice"
+recall recall "PostgreSQL"
 recall ingest ~/notes
 recall list --open
 recall serve --open
@@ -87,6 +87,7 @@ recall serve --open
 | `recall recall ["<query>"] [--limit <n>]` | Retrieve contextually relevant memories |
 | `recall list [--repo] [--open]` | List memories, optionally filtered |
 | `recall resolve <id>` | Resolve a memory using its UUID or unique prefix |
+| `recall detach <id>` | Remove incorrect repository/file context without deleting the memory |
 | `recall digest` | Show recent and resurfaced memories |
 | `recall serve [--port <n>] [--open]` | Start the local dashboard |
 | `recall mcp` | Start the stdio MCP server |

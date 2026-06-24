@@ -104,7 +104,10 @@ export async function recallIdeas(
 
   // Collect candidate IDs: FTS hits first, then recent ideas as fallback
   const candidateIds = new Set<string>(ftsResults.map((r) => r.idea_id));
-  if (candidateIds.size === 0) {
+  // An explicit search must not degrade into a list of unrelated recent
+  // memories. Recent/context fallback is only appropriate for `recall recall`
+  // without a query.
+  if (candidateIds.size === 0 && !options.query?.trim()) {
     getRecentIdeas(db, limit * 2).forEach((r) =>
       candidateIds.add(r.id)
     );

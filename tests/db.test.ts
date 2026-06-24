@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { DatabaseSync } from "node:sqlite";
 import {
-  insertIdea, resolveIdea, listIdeas, getIdeaById,
+  insertIdea, resolveIdea, listIdeas, getIdeaById, clearIdeaContext,
   vectorSearch, getIngestedSourcePaths,
 } from "../src/db/index.js";
 import { createTestDb, fakeEmbedding } from "./helpers.js";
@@ -55,6 +55,17 @@ describe("resolveIdea", () => {
   });
   it("returns false for unknown id", () => {
     expect(resolveIdea(db, "nonexistent")).toBe(false);
+  });
+});
+
+describe("clearIdeaContext", () => {
+  it("removes repository context without deleting the memory", () => {
+    insertIdea(db, { id: "detach-me", content: "General note", source: "cli", context: { repo_path: "/repos/wrong", branch: "main", file_path: "x.ts" } });
+    expect(clearIdeaContext(db, "detach-me")).toBe(true);
+    const idea = getIdeaById(db, "detach-me")!;
+    expect(idea.repo_path).toBeNull();
+    expect(idea.branch).toBeNull();
+    expect(idea.file_path).toBeNull();
   });
 });
 

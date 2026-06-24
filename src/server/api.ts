@@ -51,7 +51,6 @@ const routes: Record<string, Record<string, Handler>> = {
       };
       if (!content?.trim()) return err(res, 400, "content is required");
       const db = getDb();
-      const gitCtx = await getGitContext();
       const id = uuidv4();
       insertIdea(db, {
         id, content, source: "cli",
@@ -60,12 +59,9 @@ const routes: Record<string, Record<string, Handler>> = {
         topic: topic?.trim() || inferTopic(content),
         project_id: project_id || null,
         workflow_status: (workflow_status as WorkflowStatus) || "backlog",
-        context: {
-          repo_path: gitCtx.repo_path,
-          branch: gitCtx.branch,
-          commit_hash: gitCtx.commit_hash,
-          file_path: file ?? null,
-        },
+        // Dashboard captures are general memories unless the user explicitly
+        // supplies a file. The server's own cwd is not the memory's context.
+        context: { file_path: file ?? null },
       });
       json(res, 201, { id, content, status: "open", priority: priority || "medium", category: category || "note", topic: topic?.trim() || inferTopic(content), project_id: project_id || null, workflow_status: workflow_status || "backlog" });
     },

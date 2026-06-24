@@ -85,6 +85,11 @@ describe("keyword search (FTS5)", () => {
     const results = await recallIdeas(db, { query: "event sourcing orders", limit: 5 });
     expect(results[0].idea.id).toBe("relevant");
   });
+  it("does not return unrelated recent memories for an unmatched explicit query", async () => {
+    insertIdea(db, { id: "unrelated-query", content: "Team meeting on Tuesday", source: "cli", context: { repo_path: "/repos/myapp", branch: "main" } });
+    const results = await recallIdeas(db, { query: "postgres database", context: { repo: "/repos/myapp", branch: "main" }, limit: 5 });
+    expect(results).toEqual([]);
+  });
 });
 
 describe("edge cases", () => {

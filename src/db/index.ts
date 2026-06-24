@@ -183,6 +183,15 @@ export function resolveIdea(db: DatabaseSync, id: string): boolean {
   return result.changes > 0;
 }
 
+export function clearIdeaContext(db: DatabaseSync, id: string): boolean {
+  const result = db.prepare(
+    `UPDATE idea_context SET repo_path = NULL, branch = NULL, file_path = NULL,
+      line_start = NULL, line_end = NULL, commit_hash = NULL, error_text = NULL
+     WHERE idea_id = ?`
+  ).run(id) as { changes: number };
+  return result.changes > 0;
+}
+
 // ─── Read helpers ─────────────────────────────────────────────────────────────
 
 export interface IdeaRow extends Idea {
