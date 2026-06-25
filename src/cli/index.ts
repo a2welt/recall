@@ -36,6 +36,11 @@ import type { HandoffTarget, ProviderKind } from "../ai/types.js";
 
 const program = new Command();
 
+function collect(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
+}
+
 program
   .name("recall")
   .description(
@@ -49,6 +54,12 @@ program
   .description("Capture a thought and link it to the current git context.")
   .option("--file <path>", "File path to attach as context")
   .option("--repo <path>", "Override repo root (default: cwd)")
+  .option("--decision <text>", "Structured decision summary")
+  .option("--why <text>", "Reasoning behind the decision")
+  .option("--alternative <text>", "Rejected alternative; can be passed multiple times", collect, [])
+  .option("--tradeoff <text>", "Known tradeoff; can be passed multiple times", collect, [])
+  .option("--evidence <text>", "Evidence, source, discussion, or observation")
+  .option("--outcome <text>", "Expected or observed outcome")
   .action(async (text: string, opts) => {
     await run(addIdea(text, opts));
   });

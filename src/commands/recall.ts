@@ -1,4 +1,4 @@
-import { getDb } from "../db/index.js";
+﻿import { getDb } from "../db/index.js";
 import { getGitContext } from "../git/index.js";
 import { recallIdeas } from "../recall/index.js";
 import type { RecalledIdea } from "../types.js";
@@ -14,6 +14,9 @@ function formatIdea(r: RecalledIdea, index: number): string {
 
   lines.push(`\n[${index + 1}] ${idea.content.slice(0, 200)}`);
   if (idea.content.length > 200) lines.push("    …");
+  if (idea.decision) lines.push(`    decision: ${idea.decision}`);
+  if (idea.why) lines.push(`    rationale: ${idea.why}`);
+  if (idea.alternatives) lines.push(`    rejected: ${idea.alternatives}`);
 
   const meta: string[] = [];
   if (idea.context?.repo_path) meta.push(`repo: ${idea.context.repo_path}`);
@@ -22,7 +25,7 @@ function formatIdea(r: RecalledIdea, index: number): string {
   if (idea.status === "open") meta.push("open");
   meta.push(`id: ${idea.id.slice(0, 8)}`);
 
-  lines.push(`    why: ${reason}`);
+  lines.push(`    surfaced: ${reason}`);
   lines.push(`    ${meta.join(" · ")}`);
   return lines.join("\n");
 }

@@ -1,10 +1,17 @@
 import { v4 as uuidv4 } from "uuid";
 import { getDb, insertIdea } from "../db/index.js";
 import { getGitContext } from "../git/index.js";
+import type { DecisionMetadata } from "../types.js";
 
 export interface AddOptions {
   file?: string;
   repo?: string;
+  decision?: string;
+  why?: string;
+  alternative?: string[];
+  tradeoff?: string[];
+  evidence?: string;
+  outcome?: string;
 }
 
 export async function addIdea(content: string, opts: AddOptions): Promise<void> {
@@ -24,6 +31,7 @@ export async function addIdea(content: string, opts: AddOptions): Promise<void> 
     id,
     content,
     source: "cli",
+    decision: buildDecisionMetadata(opts),
     context: {
       repo_path: gitCtx.repo_path,
       branch: gitCtx.branch,
@@ -45,4 +53,20 @@ export async function addIdea(content: string, opts: AddOptions): Promise<void> 
   } else if (!gitCtx.branch) {
     console.log("  ⚠ repository detected but no branch (unborn branch or detached HEAD).");
   }
+}
+
+function joinMulti(values: string[] | string | undefined): string | undefined {
+  if (!values) return undefined;
+  return Array.isArray(values) ? values.filter(Boolean).join("\n") : values;
+}
+
+function buildDecisionMetadata(opts: AddOptions): DecisionMetadata {
+  return {
+    decision: opts.decision,
+    why: opts.why,
+    alternatives: joinMulti(opts.alternative),
+    tradeoffs: joinMulti(opts.tradeoff),
+    evidence: opts.evidence,
+    outcome: opts.outcome,
+  };
 }

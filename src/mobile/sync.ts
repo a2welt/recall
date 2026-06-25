@@ -8,7 +8,7 @@ import { inferTopic } from "../topic.js";
 
 export interface MobileSyncConfig { inboxId: string; accessToken: string; encryptionKey: string; workerUrl: string; pagesUrl: string; createdAt: string }
 interface EncryptedCapture { id: string; iv: string; ciphertext: string; created_at: string }
-interface MobileCapture { id: string; content: string; topic?: string; project?: string; created_at: string }
+interface MobileCapture { id: string; content: string; topic?: string; project?: string; created_at: string; decision?: string; why?: string; alternatives?: string; tradeoffs?: string; evidence?: string; outcome?: string }
 
 const configPath = () => process.env.RECALL_MOBILE_CONFIG_PATH || join(envPaths("recall", { suffix: "" }).config, "mobile-sync.json");
 const base64url = (value: Buffer) => value.toString("base64url");
@@ -36,7 +36,7 @@ export async function pullMobileCaptures(): Promise<{ imported: number; pending:
       const capture = decryptCapture(encrypted, config.encryptionKey); const db = getDb();
       if (!getIdeaById(db, capture.id)) {
         const projectId = capture.project ? listProjects(db).find((project) => project.name.toLowerCase() === capture.project!.toLowerCase())?.id : undefined;
-        insertIdea(db, { id: capture.id, content: capture.content, source: "cli", source_path: "mobile", topic: capture.topic?.trim() || inferTopic(capture.content), project_id: projectId ?? null, workflow_status: "backlog" }); imported += 1;
+        insertIdea(db, { id: capture.id, content: capture.content, source: "cli", source_path: "mobile", topic: capture.topic?.trim() || inferTopic(capture.content), project_id: projectId ?? null, workflow_status: "backlog", decision: { decision: capture.decision, why: capture.why, alternatives: capture.alternatives, tradeoffs: capture.tradeoffs, evidence: capture.evidence, outcome: capture.outcome } }); imported += 1;
       }
       await fetch(`${config.workerUrl}/v1/inboxes/${encodeURIComponent(config.inboxId)}/captures/${encodeURIComponent(encrypted.id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${config.accessToken}` } });
     } catch (error) { console.warn(`Skipped invalid mobile capture ${hashId(encrypted.id)}: ${(error as Error).message}`); }
@@ -47,7 +47,7 @@ export async function pullMobileCaptures(): Promise<{ imported: number; pending:
 export async function publishMobileSnapshot(configOverride?: MobileSyncConfig): Promise<void> {
   const config = configOverride ?? await getMobileSyncConfig(); if (!config) return;
   const db = getDb(); const projects = listProjects(db); const projectNames = new Map(projects.map((project) => [project.id, project.name]));
-  const payload = { version: 1, generated_at: new Date().toISOString(), memories: listIdeas(db).map((idea) => ({ id: idea.id, content: idea.content, topic: idea.topic || inferTopic(idea.content), category: idea.category, priority: idea.priority, status: idea.status, workflow_status: idea.workflow_status, project: idea.project_id ? projectNames.get(idea.project_id) ?? "Inbox" : "Inbox", created_at: idea.created_at })) };
+  const payload = { version: 1, generated_at: new Date().toISOString(), memories: listIdeas(db).map((idea) => ({ id: idea.id, content: idea.content, decision: idea.decision, why: idea.why, alternatives: idea.alternatives, tradeoffs: idea.tradeoffs, evidence: idea.evidence, outcome: idea.outcome, topic: idea.topic || inferTopic(idea.content), category: idea.category, priority: idea.priority, status: idea.status, workflow_status: idea.workflow_status, project: idea.project_id ? projectNames.get(idea.project_id) ?? "Inbox" : "Inbox", created_at: idea.created_at })) };
   const compressed = gzipSync(Buffer.from(JSON.stringify(payload)), { level: 9 }); const key = Buffer.from(config.encryptionKey, "base64url"); const iv = randomBytes(12); const cipher = createCipheriv("aes-256-gcm", key, iv); const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final(), cipher.getAuthTag()]);
   const response = await fetch(`${config.workerUrl}/v1/inboxes/${encodeURIComponent(config.inboxId)}/snapshot`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.accessToken}` }, body: JSON.stringify({ iv: iv.toString("base64url"), ciphertext: ciphertext.toString("base64url"), encoding: "gzip+json" }) });
   if (!response.ok) throw new Error(`Mobile catalog publish failed (${response.status})`);

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import type { DatabaseSync } from "node:sqlite";
 import {
   insertIdea, resolveIdea, listIdeas, getIdeaById, clearIdeaContext,
-  vectorSearch, getIngestedSourcePaths,
+  vectorSearch, getIngestedSourcePaths, ftsSearch,
 } from "../src/db/index.js";
 import { createTestDb, fakeEmbedding } from "./helpers.js";
 
@@ -44,6 +44,27 @@ describe("insertIdea", () => {
     const row = getIdeaById(db, "idea-3");
     expect(row!.repo_path).toBeNull();
     expect(row!.branch).toBeNull();
+  });
+
+  it("stores structured decision metadata and indexes it for recall", () => {
+    insertIdea(db, {
+      id: "decision-metadata",
+      content: "Database choice",
+      source: "cli",
+      decision: {
+        decision: "Use PostgreSQL",
+        why: "Reporting filters require JSONB indexes",
+        alternatives: "MongoDB was rejected because relational reports become harder",
+        tradeoffs: "More schema migration discipline",
+        evidence: "Prototype query plan",
+        outcome: "One operational datastore",
+      },
+    });
+    const row = getIdeaById(db, "decision-metadata")!;
+    expect(row.decision).toBe("Use PostgreSQL");
+    expect(row.why).toContain("JSONB");
+    expect(row.alternatives).toContain("MongoDB");
+    expect(ftsSearch(db, "JSONB", 5).map((item) => item.idea_id)).toContain("decision-metadata");
   });
 });
 

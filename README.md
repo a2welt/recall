@@ -1,4 +1,4 @@
-<p align="center"><img src="ui/public/icon.svg" width="96" alt="Recall logo" /></p>
+﻿<p align="center"><img src="ui/public/icon.svg" width="96" alt="Recall logo" /></p>
 
 <h1 align="center">Recall</h1>
 
@@ -13,7 +13,7 @@
   <img alt="Local first" src="https://img.shields.io/badge/data-local--first-17282c" />
 </p>
 
-Six weeks after a feature ships, the code is still there—but its reasoning is gone. Why is the retry limit two? Why was Redis rejected? Which migration already failed? A new developer or coding agent sees the implementation, not the decisions that shaped it.
+Six weeks after a feature ships, the code is still thereâ€”but its reasoning is gone. Why is the retry limit two? Why was Redis rejected? Which migration already failed? A new developer or coding agent sees the implementation, not the decisions that shaped it.
 
 Recall captures that reasoning while it is fresh, links it to the repository, branch, and file where it matters, then resurfaces it when the same context returns. Use the visual dashboard, CLI, or MCP server from an AI coding tool.
 
@@ -36,7 +36,7 @@ Source control records *what* changed. Issue trackers record *what* was requeste
 | --- | --- |
 | Local dashboard | Search, capture, projects, lifecycle, priorities, topics, and memory management |
 | Memory galaxy | Interactive canvas graph with topic/project hubs and zoom controls |
-| Context-aware recall | Repository, branch, file, semantic meaning, keywords, status, and recency—with an explanation |
+| Context-aware recall | Repository, branch, file, semantic meaning, keywords, status, and recencyâ€”with an explanation |
 | CLI | Fast capture, recall, ingestion, digest, resolution, and generation commands |
 | MCP server | Shared memory tools for Codex, Claude Code, Cursor, and other MCP clients |
 | AI handoffs | Reviewable specifications, prompts, skills, ZIP export, Ollama/OpenAI/Anthropic-compatible providers |
@@ -75,7 +75,12 @@ The first meaning-based query builds a persistent local semantic index and may d
 cd ~/code/my-app
 
 # Capture the decision where it was made. Repository and branch are automatic.
-recall add "Keep retries at two: a third attempt exceeds the payment provider's idempotency window" --file src/payments/retry.ts
+recall add "Payment retry policy" \
+  --decision "Keep retries at two" \
+  --why "A third attempt exceeds the payment provider's idempotency window" \
+  --alternative "Unlimited retries: rejected because duplicate charge risk increases" \
+  --tradeoff "Some transient failures require manual recovery" \
+  --file src/payments/retry.ts
 
 # Weeks later, ask in different words from the same repository.
 recall recall "why only two payment retries"
@@ -90,7 +95,7 @@ The same flow works through MCP: an agent records a significant decision with `c
 
 | Command | Description |
 | --- | --- |
-| `recall add "<text>" [--file <path>] [--repo <path>]` | Capture a memory with current Git context |
+| `recall add "<text>" [--file <path>] [--repo <path>] [--why <text>]` | Capture a memory with current Git context and optional decision rationale |
 | `recall ingest <path>` | Incrementally import an Obsidian vault, Logseq graph, or Markdown folder |
 | `recall recall ["<query>"] [--limit <n>]` | Retrieve contextually relevant memories |
 | `recall list [--repo] [--open]` | List memories, optionally filtered |
@@ -122,14 +127,14 @@ A source checkout can be connected to any MCP client with:
 
 The MCP server exposes:
 
-- `capture_idea` — store a memory from an agent session. Repository and branch are auto-detected from the server's working directory (a stdio MCP server runs inside the agent's workspace), so the agent can omit context entirely.
-- `recall_ideas` — retrieve relevant decisions for the current context.
-- `list_open_ideas` — inspect unresolved work.
-- `resolve_idea` — close a completed thread.
+- `capture_idea` — store a memory from an agent session. Repository and branch are auto-detected from the server's working directory (a stdio MCP server runs inside the agent's workspace), so the agent can omit context entirely. It also accepts optional structured decision fields: `decision`, `why`, `alternatives`, `tradeoffs`, `evidence`, and `outcome`.
+- `recall_ideas` â€” retrieve relevant decisions for the current context.
+- `list_open_ideas` â€” inspect unresolved work.
+- `resolve_idea` â€” close a completed thread.
 
 ### Make agents capture decisions automatically
 
-MCP tools are model-invoked: an agent only records a decision when it chooses to call `capture_idea`. To make capture effectively automatic, add a standing instruction to your agent's project memory — `CLAUDE.md` for Claude Code, `AGENTS.md` for Codex and Cursor. Paste this block:
+MCP tools are model-invoked: an agent only records a decision when it chooses to call `capture_idea`. To make capture effectively automatic, add a standing instruction to your agent's project memory â€” `CLAUDE.md` for Claude Code, `AGENTS.md` for Codex and Cursor. Paste this block:
 
 ```md
 ## Recall memory (MCP)
@@ -138,10 +143,12 @@ This workspace has the `recall` MCP server connected.
 
 - **At the start of a task**, call `recall_ideas` with the current branch to load prior
   decisions. Treat them as context, but verify against the current code.
-- **Whenever you make a significant decision** — choosing an approach, rejecting an
-  alternative, recording a known limitation, or noting why something failed — immediately
-  call `capture_idea` with a 1–3 sentence summary. Repository and branch are detected
-  automatically; pass `file` when the decision is local to one file.
+- **Whenever you make a significant decision** â€” choosing an approach, rejecting an
+  alternative, recording a known limitation, or noting why something failed â€” immediately
+  call `capture_idea`. Put the short human-readable summary in `content`, and when known,
+  fill the structured `decision`, `why`, `alternatives`, `tradeoffs`, `evidence`, and
+  `outcome` fields. Repository and branch are detected automatically; pass `file` when the
+  decision is local to one file.
 - **Do not** capture routine steps, restated requirements, or anything already obvious
   from the code. One memory per genuine decision.
 - **When a captured thread is resolved**, call `resolve_idea` with its id.
@@ -195,7 +202,7 @@ The SQLite database is created outside the repository:
 
 Back up `recall.db` to preserve memories. WAL sidecar files may exist while Recall is running, so stop the server before taking a raw file copy.
 
-Encrypted AI and mobile configuration also live in the operating system’s application config directory, never in this repository or browser local storage.
+Encrypted AI and mobile configuration also live in the operating systemâ€™s application config directory, never in this repository or browser local storage.
 
 ## Optional mobile companion
 
@@ -241,3 +248,4 @@ Recall is early-stage software. Database migrations are additive, but APIs and U
 ## License
 
 Recall is available under the [MIT License](LICENSE).
+

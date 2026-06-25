@@ -24,6 +24,12 @@ export interface Project {
 export interface Idea {
   id: string;
   content: string;
+  decision: string | null;
+  why: string | null;
+  alternatives: string | null;
+  tradeoffs: string | null;
+  evidence: string | null;
+  outcome: string | null;
   created_at: string; // ISO 8601
   updated_at: string;
   source: IdeaSource;
@@ -82,6 +88,15 @@ export interface CaptureContext {
   branch?: string;
   file?: string;
   error?: string;
+}
+
+export interface DecisionMetadata {
+  decision?: string | null;
+  why?: string | null;
+  alternatives?: string | null;
+  tradeoffs?: string | null;
+  evidence?: string | null;
+  outcome?: string | null;
 }
 
 export interface RecallContext {

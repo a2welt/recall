@@ -31,6 +31,16 @@ export function createTestDb(): DatabaseSync {
       commit_hash TEXT,
       error_text  TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS idea_decisions (
+      idea_id      TEXT PRIMARY KEY REFERENCES ideas(id) ON DELETE CASCADE,
+      decision     TEXT,
+      why          TEXT,
+      alternatives TEXT,
+      tradeoffs    TEXT,
+      evidence     TEXT,
+      outcome      TEXT
+    );
     CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT, status TEXT DEFAULT 'active', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 
     CREATE TABLE IF NOT EXISTS idea_embeddings (

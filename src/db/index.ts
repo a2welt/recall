@@ -7,7 +7,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import envPaths from "env-paths";
 import type {
-  Idea, IdeaContext, IdeaSource, IdeaStatus, IdeaPriority, IdeaCategory, Project, WorkflowStatus,
+  Idea, IdeaContext, IdeaSource, IdeaStatus, IdeaPriority, IdeaCategory, Project, WorkflowStatus, DecisionMetadata,
 } from "../types.js";
 import { inferTopic } from "../topic.js";
 
@@ -65,6 +65,16 @@ function runMigrations(db: DatabaseSync): void {
       line_end    INTEGER,
       commit_hash TEXT,
       error_text  TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS idea_decisions (
+      idea_id      TEXT PRIMARY KEY REFERENCES ideas(id) ON DELETE CASCADE,
+      decision     TEXT,
+      why          TEXT,
+      alternatives TEXT,
+      tradeoffs    TEXT,
+      evidence     TEXT,
+      outcome      TEXT
     );
 
     CREATE TABLE IF NOT EXISTS idea_embeddings (
@@ -134,12 +144,39 @@ export interface InsertIdeaOpts {
     commit_hash?: string | null;
     error_text?: string | null;
   };
+  decision?: DecisionMetadata;
   /** Optional dense embedding stored for future semantic search. */
   embedding?: number[];
 }
 
+function cleanOptionalText(value: string | null | undefined): string | null {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : null;
+}
+
+export function buildIdeaSearchText(input: { content: string } & Partial<DecisionMetadata>): string {
+  return [
+    input.content,
+    input.decision && `Decision: ${input.decision}`,
+    input.why && `Why: ${input.why}`,
+    input.alternatives && `Alternatives rejected: ${input.alternatives}`,
+    input.tradeoffs && `Tradeoffs: ${input.tradeoffs}`,
+    input.evidence && `Evidence: ${input.evidence}`,
+    input.outcome && `Outcome: ${input.outcome}`,
+  ].filter(Boolean).join("\n");
+}
+
 export function insertIdea(db: DatabaseSync, opts: InsertIdeaOpts): void {
   const ctx = opts.context ?? {};
+  const decision = {
+    decision: cleanOptionalText(opts.decision?.decision),
+    why: cleanOptionalText(opts.decision?.why),
+    alternatives: cleanOptionalText(opts.decision?.alternatives),
+    tradeoffs: cleanOptionalText(opts.decision?.tradeoffs),
+    evidence: cleanOptionalText(opts.decision?.evidence),
+    outcome: cleanOptionalText(opts.decision?.outcome),
+  };
+  const hasDecisionMetadata = Object.values(decision).some(Boolean);
   withTransaction(db, () => {
     db.prepare(
       `INSERT INTO ideas (id, content, source, source_path, status, priority, category, topic, project_id, workflow_status)
@@ -166,13 +203,25 @@ export function insertIdea(db: DatabaseSync, opts: InsertIdeaOpts): void {
       ctx.commit_hash ?? null, ctx.error_text ?? null
     );
 
+    if (hasDecisionMetadata) {
+      db.prepare(
+        `INSERT INTO idea_decisions
+           (idea_id, decision, why, alternatives, tradeoffs, evidence, outcome)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        opts.id,
+        decision.decision, decision.why, decision.alternatives,
+        decision.tradeoffs, decision.evidence, decision.outcome
+      );
+    }
+
     if (opts.embedding) {
       db.prepare(`INSERT INTO idea_embeddings (idea_id, embedding) VALUES (?, ?)`)
         .run(opts.id, JSON.stringify(opts.embedding));
     }
 
     db.prepare(`INSERT INTO fts_ideas(idea_id, content) VALUES (?, ?)`)
-      .run(opts.id, opts.content);
+      .run(opts.id, buildIdeaSearchText({ content: opts.content, ...decision }));
   });
 }
 
@@ -207,6 +256,7 @@ export interface IdeaRow extends Idea {
 const IDEA_SQL = `
   SELECT
     i.id, i.content, i.created_at, i.updated_at,
+    d.decision, d.why, d.alternatives, d.tradeoffs, d.evidence, d.outcome,
     i.source, i.source_path, i.status,
     COALESCE(i.priority, 'medium') AS priority,
     COALESCE(i.category, 'note')   AS category,
@@ -217,6 +267,7 @@ const IDEA_SQL = `
     c.line_start, c.line_end, c.commit_hash, c.error_text
   FROM ideas i
   LEFT JOIN idea_context c ON c.idea_id = i.id
+  LEFT JOIN idea_decisions d ON d.idea_id = i.id
 `;
 
 export function getIdeaById(db: DatabaseSync, id: string): IdeaRow | undefined {
@@ -337,8 +388,18 @@ export function vectorSearch(db: DatabaseSync, q: number[], limit = 20): VecSear
 
 export function listIdeasWithoutEmbeddings(db: DatabaseSync): Array<{ id: string; content: string }> {
   return db.prepare(`
-    SELECT i.id, i.content FROM ideas i
+    SELECT i.id,
+      trim(i.content || char(10) ||
+        COALESCE('Decision: ' || d.decision || char(10), '') ||
+        COALESCE('Why: ' || d.why || char(10), '') ||
+        COALESCE('Alternatives rejected: ' || d.alternatives || char(10), '') ||
+        COALESCE('Tradeoffs: ' || d.tradeoffs || char(10), '') ||
+        COALESCE('Evidence: ' || d.evidence || char(10), '') ||
+        COALESCE('Outcome: ' || d.outcome, '')
+      ) AS content
+    FROM ideas i
     LEFT JOIN idea_embeddings e ON e.idea_id = i.id
+    LEFT JOIN idea_decisions d ON d.idea_id = i.id
     WHERE e.idea_id IS NULL
     ORDER BY i.created_at ASC
   `).all() as unknown as Array<{ id: string; content: string }>;

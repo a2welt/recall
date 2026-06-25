@@ -42,6 +42,12 @@ function toClientIdea(row: IdeaRow) {
       branch: row.branch ?? null,
       file_path: row.file_path ?? null,
     },
+    decision: row.decision ?? null,
+    why: row.why ?? null,
+    alternatives: row.alternatives ?? null,
+    tradeoffs: row.tradeoffs ?? null,
+    evidence: row.evidence ?? null,
+    outcome: row.outcome ?? null,
   };
 }
 
@@ -63,9 +69,10 @@ const routes: Record<string, Record<string, Handler>> = {
       json(res, 200, listIdeas(getDb()).map(toClientIdea));
     },
     POST: async (_req, res, body) => {
-      const { content, file, priority, category, topic, project_id, workflow_status } = body as {
+      const { content, file, priority, category, topic, project_id, workflow_status, decision, why, alternatives, tradeoffs, evidence, outcome } = body as {
         content: string; file?: string;
         priority?: string; category?: string; topic?: string; project_id?: string | null; workflow_status?: string;
+        decision?: string; why?: string; alternatives?: string; tradeoffs?: string; evidence?: string; outcome?: string;
       };
       if (!content?.trim()) return err(res, 400, "content is required");
       const db = getDb();
@@ -87,9 +94,10 @@ const routes: Record<string, Record<string, Handler>> = {
         topic: topic?.trim() || inferTopic(content),
         project_id: project_id || null,
         workflow_status: (workflow_status as WorkflowStatus) || "backlog",
+        decision: { decision, why, alternatives, tradeoffs, evidence, outcome },
         context,
       });
-      json(res, 201, { id, content, status: "open", priority: priority || "medium", category: category || "note", topic: topic?.trim() || inferTopic(content), project_id: project_id || null, workflow_status: workflow_status || "backlog", context: { repo_path: context.repo_path, branch: context.branch, file_path: context.file_path } });
+      json(res, 201, { id, content, status: "open", priority: priority || "medium", category: category || "note", topic: topic?.trim() || inferTopic(content), project_id: project_id || null, workflow_status: workflow_status || "backlog", decision: decision || null, why: why || null, alternatives: alternatives || null, tradeoffs: tradeoffs || null, evidence: evidence || null, outcome: outcome || null, context: { repo_path: context.repo_path, branch: context.branch, file_path: context.file_path } });
     },
   },
 
@@ -110,6 +118,12 @@ const routes: Record<string, Record<string, Handler>> = {
         priority: r.idea.priority,
         category: r.idea.category,
         topic: r.idea.topic,
+        decision: r.idea.decision,
+        why: r.idea.why,
+        alternatives: r.idea.alternatives,
+        tradeoffs: r.idea.tradeoffs,
+        evidence: r.idea.evidence,
+        outcome: r.idea.outcome,
         project_id: r.idea.project_id,
         workflow_status: r.idea.workflow_status,
         source: r.idea.source,

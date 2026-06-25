@@ -21,7 +21,7 @@ import { v4 as uuidv4 } from "uuid";
 import { getDb, insertIdea, resolveIdea, listIdeas } from "../db/index.js";
 import { recallIdeas } from "../recall/index.js";
 import { getGitContext } from "../git/index.js";
-import type { CaptureContext, GitContext } from "../types.js";
+import type { CaptureContext, GitContext, DecisionMetadata } from "../types.js";
 import type { RecallContext } from "../types.js";
 import { prepareSemanticQuery } from "../embed/semantic.js";
 
@@ -51,6 +51,19 @@ const TOOLS = [
             branch: { type: "string", description: "Current git branch (auto-detected if omitted)." },
             file: { type: "string", description: "File path being worked on." },
             error: { type: "string", description: "Error text if this is an error note." },
+          },
+        },
+        decision: {
+          type: "object",
+          description:
+            "Optional structured decision fields. Use these whenever the session contains clear rationale.",
+          properties: {
+            decision: { type: "string", description: "Concise decision statement." },
+            why: { type: "string", description: "Reasoning behind the decision." },
+            alternatives: { type: "string", description: "Rejected alternatives and why they were rejected." },
+            tradeoffs: { type: "string", description: "Known costs, risks, or compromises." },
+            evidence: { type: "string", description: "Observed evidence, PR/comment/source, or error context." },
+            outcome: { type: "string", description: "Expected or observed result." },
           },
         },
       },
@@ -151,6 +164,7 @@ export function resolveCaptureContext(
 async function handleCaptureIdea(args: {
   content: string;
   context?: CaptureContext;
+  decision?: DecisionMetadata;
 }): Promise<string> {
   const db = getDb();
   const id = uuidv4();
@@ -162,7 +176,7 @@ async function handleCaptureIdea(args: {
   const detected = await getGitContext();
   const context = resolveCaptureContext(ctx, detected);
 
-  insertIdea(db, { id, content: args.content, source: "mcp", context });
+  insertIdea(db, { id, content: args.content, source: "mcp", context, decision: args.decision });
 
   return JSON.stringify({
     id,
@@ -197,6 +211,12 @@ async function handleRecallIdeas(args: {
     ideas: results.map((r) => ({
       id: r.idea.id,
       content: r.idea.content,
+      decision: r.idea.decision,
+      why: r.idea.why,
+      alternatives: r.idea.alternatives,
+      tradeoffs: r.idea.tradeoffs,
+      evidence: r.idea.evidence,
+      outcome: r.idea.outcome,
       status: r.idea.status,
       created_at: r.idea.created_at,
       context: {
@@ -220,6 +240,12 @@ async function handleListOpenIdeas(args: { repo?: string }): Promise<string> {
     ideas: ideas.map((i) => ({
       id: i.id,
       content: i.content,
+      decision: i.decision,
+      why: i.why,
+      alternatives: i.alternatives,
+      tradeoffs: i.tradeoffs,
+      evidence: i.evidence,
+      outcome: i.outcome,
       created_at: i.created_at,
       source: i.source,
       context: {

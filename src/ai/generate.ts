@@ -18,7 +18,25 @@ export async function generateArtifacts(db: DatabaseSync, request: GenerateReque
   const project = idea.project_id ? listProjects(db).find((item) => item.id === idea.project_id)?.name : undefined;
   const repoName = idea.repo_path ? basename(idea.repo_path) : undefined;
   const file = idea.file_path ? (idea.repo_path ? relative(idea.repo_path, idea.file_path) : basename(idea.file_path)) : undefined;
-  const safeContext = { memory_id: idea.id, content: idea.content, topic: idea.topic, category: idea.category, priority: idea.priority, lifecycle: idea.workflow_status, project: project ?? "Inbox", repository: repoName, branch: idea.branch, file, error: idea.error_text };
+  const safeContext = {
+    memory_id: idea.id,
+    content: idea.content,
+    decision: idea.decision,
+    why: idea.why,
+    alternatives: idea.alternatives,
+    tradeoffs: idea.tradeoffs,
+    evidence: idea.evidence,
+    outcome: idea.outcome,
+    topic: idea.topic,
+    category: idea.category,
+    priority: idea.priority,
+    lifecycle: idea.workflow_status,
+    project: project ?? "Inbox",
+    repository: repoName,
+    branch: idea.branch,
+    file,
+    error: idea.error_text,
+  };
   const { system, user } = buildArtifactMessages(request.target, request.artifacts, safeContext, request.instructions);
   let files: Partial<Record<ArtifactName, string>>;
   try {
