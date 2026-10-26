@@ -105,3 +105,15 @@ The same flow works with browsers, voice recorders, messaging apps, and other ap
 - Anyone with the full pairing link can read future encrypted snapshots and submit captures. Treat it as a secret and re-pair if exposed.
 - Cloudflare account credentials are never required by the running Recall desktop or mobile applications.
 - This design provides confidentiality from the relay but does not replace device security or a tested backup strategy.
+
+## Legal links on a public instance
+
+If you host the PWA publicly (for example on Cloudflare Pages), German law
+(§ 5 DDG) and the GDPR expect an imprint and a privacy notice to be reachable
+from it. Set these build-time variables and the mobile footer shows the links;
+leave them unset for a private instance and nothing is rendered:
+
+```bash
+VITE_LEGAL_IMPRINT_URL=https://example.com/imprint
+VITE_LEGAL_PRIVACY_URL=https://example.com/privacy
+```
