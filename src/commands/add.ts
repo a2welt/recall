@@ -10,7 +10,7 @@ export interface AddOptions {
   why?: string;
   alternative?: string[];
   tradeoff?: string[];
-  evidence?: string;
+  evidence?: string[] | string;
   outcome?: string;
 }
 
@@ -66,7 +66,7 @@ function buildDecisionMetadata(opts: AddOptions): DecisionMetadata {
     why: opts.why,
     alternatives: joinMulti(opts.alternative),
     tradeoffs: joinMulti(opts.tradeoff),
-    evidence: opts.evidence,
+    evidence: joinMulti(opts.evidence),
     outcome: opts.outcome,
   };
 }

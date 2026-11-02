@@ -101,6 +101,9 @@ The same flow works through MCP: an agent records a significant decision with `c
 | `recall list [--repo] [--open]` | List memories, optionally filtered |
 | `recall resolve <id>` | Resolve a memory using its UUID or unique prefix |
 | `recall detach <id>` | Remove incorrect repository/file context without deleting the memory |
+| `recall link <id> <reference> [--relation <r>]` | Link a memory to a reference URI (receipt, code, model call, memory) |
+| `recall unlink <id> <reference> [--relation <r>]` | Remove a link (every relation, unless `--relation` is given) |
+| `recall links [<id>] [--reference <uri>] [--json]` | List a memory's links, or the memories linked to a reference |
 | `recall digest` | Show recent and resurfaced memories |
 | `recall serve [--port <n>] [--open]` | Start the local dashboard |
 | `recall mcp` | Start the stdio MCP server |
@@ -131,6 +134,7 @@ The MCP server exposes:
 - `recall_ideas` â€” retrieve relevant decisions for the current context.
 - `list_open_ideas` â€” inspect unresolved work.
 - `resolve_idea` â€” close a completed thread.
+- `recall_link` — link a memory to a reference URI (`action: "add"`, the default), `remove` a link, `list` a memory's links, or `find` the memories linked to a reference.
 
 ### Make agents capture decisions automatically
 
@@ -178,6 +182,48 @@ Recall combines several signals instead of treating memory as a flat notes list:
 4. Open/resolved status and recency.
 
 Every result includes a short reason explaining why it surfaced. Recall does not silently read arbitrary repository files when generating AI handoffs; only the selected memory and its stored metadata are sent.
+
+## Links to other tools
+
+A memory can point at objects in other tools through shared reference URIs, the form the
+[Open Engineering Studio](https://github.com/findajay/open-agent-trust/blob/main/docs/integration/shared-references.md)
+uses to connect agent receipts, decisions, code, and model calls:
+
+| Kind | Form |
+| --- | --- |
+| Receipt | `agentproof:sha256:<64 hex digest>` |
+| Memory | `recall:memory:<id>` |
+| Code | `git+<url>@<40-hex commit>#<path>[:L<start>-L<end>]` |
+| Model call | `<gateway>:request:<id>`, e.g. `omf:request:req-123` |
+| Knowledge item | `ballast://source/knowledge:<id>` |
+
+These schemes are validated. A reference with any other lowercase scheme (`https:`, `jira:`, …)
+is stored as an opaque string. Each link has a relation: `constrains`, `explains`, `changed-by`,
+`supersedes`, or `related`, and is unique per memory, reference, and relation.
+
+Reference URIs on their own lines in a decision's `evidence` field become `related` links when
+the memory is captured. On upgrade, existing evidence is backfilled once.
+
+```bash
+recall add "Route by cost" --evidence "Load test in staging" \
+  --evidence "agentproof:sha256:46ab…"
+recall link 3f0c9d2e "git+https://github.com/findajay/Open-model-fabric@cea75b0…#python/omf/core/services/routing.py:L40-L72" --relation constrains
+recall links --reference "git+https://github.com/findajay/Open-model-fabric@cea75b0…#python/omf/core/services/routing.py"
+```
+
+### REST endpoints
+
+All endpoints need the API token (see [Privacy and security model](#privacy-and-security-model)).
+In query strings, a literal `+` is kept as `+` (reference URIs never contain spaces), so
+`git+https://…` works whether or not the `+` is percent-encoded; encode `#` as `%23`.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/ideas/<id>/links` | `{memory_id, links: [{memory_id, reference, relation, created_at}]}`; 404 for an unknown memory |
+| `POST /api/ideas/<id>/links` | Body `{reference, relation?}` (default `related`). 201 with the link and `created: true`; 200 with `created: false` if it already existed; 400 for an invalid reference or relation |
+| `DELETE /api/ideas/<id>/links?reference=<uri>[&relation=<r>]` | Remove one relation, or every relation to that reference. `{removed}`; 404 if nothing matched |
+| `GET /api/links?reference=<uri>[&relation=<r>]` | Memories linked to a reference: `{reference, match, links: [{…link, memory: {id, content, decision, status, category, topic, created_at}}]}`. A code reference without a line range also matches that file's line ranges (`match: "path"`), so it answers "which decisions mention this file" |
+| `GET /api/links[?relation=<r>]` | Every link, for drawing the memory graph |
 
 ## AI implementation handoffs
 

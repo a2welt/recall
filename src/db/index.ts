@@ -8,8 +8,11 @@ import { dirname, join } from "node:path";
 import envPaths from "env-paths";
 import type {
   Idea, IdeaContext, IdeaSource, IdeaStatus, IdeaPriority, IdeaCategory, Project, WorkflowStatus, DecisionMetadata,
+  IdeaLink, LinkRelation,
 } from "../types.js";
+import { LINK_RELATIONS } from "../types.js";
 import { inferTopic } from "../topic.js";
+import { extractEvidenceReferences, parseReference } from "../links/references.js";
 
 // ─── DB path ──────────────────────────────────────────────────────────────────
 
@@ -42,7 +45,7 @@ export function setDb(db: DatabaseSync): void { _db = db; }
 
 // ─── Migrations ───────────────────────────────────────────────────────────────
 
-function runMigrations(db: DatabaseSync): void {
+export function runMigrations(db: DatabaseSync): void {
   // Core schema — does NOT reference priority/category so it is safe against
   // existing databases that predate those columns.
   db.exec(`
@@ -112,6 +115,33 @@ function runMigrations(db: DatabaseSync): void {
   try { db.exec(`ALTER TABLE ideas ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE ideas ADD COLUMN workflow_status TEXT DEFAULT 'backlog'`); } catch { /* already exists */ }
   try { db.exec(`CREATE INDEX IF NOT EXISTS idx_ideas_priority ON ideas(priority)`); } catch { /* already exists */ }
+
+  migrateIdeaLinks(db);
+}
+
+/**
+ * Links from a memory to shared reference URIs (receipts, code, model calls, …).
+ * When the table is first created, references already sitting in decision
+ * `evidence` fields are backfilled as `related` links. The backfill runs once, so
+ * a link the user later removes is not re-created on the next start.
+ */
+export function migrateIdeaLinks(db: DatabaseSync): void {
+  const exists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'idea_links'`).get();
+  if (exists) return;
+  const relations = LINK_RELATIONS.map((relation) => `'${relation}'`).join(",");
+  withTransaction(db, () => {
+    db.exec(`
+      CREATE TABLE idea_links (
+        memory_id  TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+        reference  TEXT NOT NULL,
+        relation   TEXT NOT NULL DEFAULT 'related' CHECK(relation IN (${relations})),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (memory_id, reference, relation)
+      );
+      CREATE INDEX idx_links_reference ON idea_links(reference);
+    `);
+    backfillEvidenceLinks(db);
+  });
 }
 
 // ─── Transaction helper ───────────────────────────────────────────────────────
@@ -214,6 +244,8 @@ export function insertIdea(db: DatabaseSync, opts: InsertIdeaOpts): void {
         decision.tradeoffs, decision.evidence, decision.outcome
       );
     }
+
+    insertEvidenceLinks(db, opts.id, decision.evidence);
 
     if (opts.embedding) {
       db.prepare(`INSERT INTO idea_embeddings (idea_id, embedding) VALUES (?, ?)`)
@@ -353,6 +385,150 @@ export function deleteIdea(db: DatabaseSync, id: string): boolean {
     changed = result.changes > 0;
   });
   return changed;
+}
+
+// ─── Links to shared references ───────────────────────────────────────────────
+
+export class InvalidLinkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidLinkError";
+  }
+}
+
+export function isLinkRelation(value: unknown): value is LinkRelation {
+  return typeof value === "string" && (LINK_RELATIONS as readonly string[]).includes(value);
+}
+
+function checkRelation(relation: unknown): LinkRelation {
+  if (!isLinkRelation(relation)) throw new InvalidLinkError(`relation must be one of: ${LINK_RELATIONS.join(", ")}`);
+  return relation;
+}
+
+function checkReference(reference: unknown) {
+  try { return parseReference(reference as string); }
+  catch (e) { throw new InvalidLinkError((e as Error).message); }
+}
+
+/** `related` links for the reference URIs on their own lines in `evidence`. */
+function insertEvidenceLinks(db: DatabaseSync, memoryId: string, evidence: string | null | undefined): number {
+  const statement = db.prepare(`INSERT OR IGNORE INTO idea_links (memory_id, reference, relation) VALUES (?, ?, 'related')`);
+  let added = 0;
+  for (const reference of extractEvidenceReferences(evidence)) {
+    if (reference === `recall:memory:${memoryId}`) continue;
+    added += (statement.run(memoryId, reference) as { changes: number }).changes;
+  }
+  return added;
+}
+
+/** Create `related` links for every evidence reference. Idempotent; returns links added. */
+export function backfillEvidenceLinks(db: DatabaseSync): number {
+  const rows = db.prepare(`SELECT idea_id, evidence FROM idea_decisions WHERE evidence IS NOT NULL`)
+    .all() as unknown as Array<{ idea_id: string; evidence: string }>;
+  return rows.reduce((added, row) => added + insertEvidenceLinks(db, row.idea_id, row.evidence), 0);
+}
+
+/** Full memory id for an id or unique prefix; undefined when none or ambiguous. */
+export function resolveIdeaId(db: DatabaseSync, idOrPrefix: string): string | undefined {
+  if (!idOrPrefix) return undefined;
+  if (db.prepare(`SELECT 1 FROM ideas WHERE id = ?`).get(idOrPrefix)) return idOrPrefix;
+  const matches = db.prepare(`SELECT id FROM ideas WHERE substr(id, 1, ?) = ? LIMIT 2`)
+    .all(idOrPrefix.length, idOrPrefix) as unknown as Array<{ id: string }>;
+  return matches.length === 1 ? matches[0].id : undefined;
+}
+
+/**
+ * Link a memory to a reference URI. Returns undefined when the memory does not
+ * exist; `created` is false when the same link was already there.
+ */
+export function addIdeaLink(
+  db: DatabaseSync,
+  memoryId: string,
+  reference: string,
+  relation: LinkRelation = "related"
+): { link: IdeaLink; created: boolean } | undefined {
+  const ref = checkReference(reference).reference;
+  const rel = checkRelation(relation);
+  if (!db.prepare(`SELECT 1 FROM ideas WHERE id = ?`).get(memoryId)) return undefined;
+  if (ref === `recall:memory:${memoryId}`) throw new InvalidLinkError("a memory cannot link to itself");
+  const result = db.prepare(`INSERT OR IGNORE INTO idea_links (memory_id, reference, relation) VALUES (?, ?, ?)`)
+    .run(memoryId, ref, rel) as { changes: number };
+  const link = db.prepare(`SELECT memory_id, reference, relation, created_at FROM idea_links WHERE memory_id = ? AND reference = ? AND relation = ?`)
+    .get(memoryId, ref, rel) as unknown as IdeaLink;
+  return { link, created: result.changes > 0 };
+}
+
+/** Remove a link; without a relation, every relation to that reference. Returns links removed. */
+export function removeIdeaLink(db: DatabaseSync, memoryId: string, reference: string, relation?: LinkRelation): number {
+  const ref = typeof reference === "string" ? reference.trim() : "";
+  if (!ref) throw new InvalidLinkError("reference is required");
+  if (relation === undefined) {
+    return (db.prepare(`DELETE FROM idea_links WHERE memory_id = ? AND reference = ?`).run(memoryId, ref) as { changes: number }).changes;
+  }
+  return (db.prepare(`DELETE FROM idea_links WHERE memory_id = ? AND reference = ? AND relation = ?`)
+    .run(memoryId, ref, checkRelation(relation)) as { changes: number }).changes;
+}
+
+export function listIdeaLinks(db: DatabaseSync, memoryId: string): IdeaLink[] {
+  return db.prepare(`SELECT memory_id, reference, relation, created_at FROM idea_links WHERE memory_id = ? ORDER BY created_at, reference, relation`)
+    .all(memoryId) as unknown as IdeaLink[];
+}
+
+/** Every link, for drawing the whole memory graph. */
+export function listAllLinks(db: DatabaseSync, relation?: LinkRelation): IdeaLink[] {
+  const where = relation === undefined ? "" : "WHERE relation = ?";
+  const params = relation === undefined ? [] : [checkRelation(relation)];
+  return db.prepare(`SELECT memory_id, reference, relation, created_at FROM idea_links ${where} ORDER BY created_at, memory_id, reference, relation`)
+    .all(...params) as unknown as IdeaLink[];
+}
+
+export interface LinkedMemory extends IdeaLink {
+  memory: Pick<Idea, "id" | "content" | "decision" | "status" | "category" | "topic" | "created_at">;
+}
+
+export interface LinkSearch {
+  reference: string;
+  /** `path` when a code reference without a line range also matched that path's line ranges. */
+  match: "exact" | "path";
+  links: LinkedMemory[];
+}
+
+type LinkedMemoryRow = IdeaLink & Pick<Idea, "content" | "decision" | "status" | "category" | "topic"> & { memory_created_at: string };
+
+/**
+ * Memories linked to a reference. A code reference without a line range
+ * (`git+<url>@<commit>#<path>`) also matches the same path with any line range,
+ * so "which decisions mention this file" finds line-level links too.
+ */
+export function findLinksByReference(db: DatabaseSync, reference: string, relation?: LinkRelation): LinkSearch {
+  const parsed = checkReference(reference);
+  const ref = parsed.reference;
+  const byPath = parsed.kind === "code" && !parsed.has_line_range;
+  // `<path>:L…` sorts between `<path>:L` and `<path>:M`, so the range test can use the index.
+  const conditions = [byPath ? `(l.reference = ? OR (l.reference > ? AND l.reference < ?))` : `l.reference = ?`];
+  const params: string[] = byPath ? [ref, `${ref}:L`, `${ref}:M`] : [ref];
+  if (relation !== undefined) { conditions.push(`l.relation = ?`); params.push(checkRelation(relation)); }
+  const rows = db.prepare(`
+    SELECT l.memory_id, l.reference, l.relation, l.created_at,
+      i.content, d.decision, i.status, COALESCE(i.category, 'note') AS category,
+      COALESCE(i.topic, '') AS topic, i.created_at AS memory_created_at
+    FROM idea_links l
+    JOIN ideas i ON i.id = l.memory_id
+    LEFT JOIN idea_decisions d ON d.idea_id = l.memory_id
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY l.created_at DESC, l.memory_id, l.reference, l.relation
+  `).all(...params) as unknown as LinkedMemoryRow[];
+  return {
+    reference: ref,
+    match: byPath ? "path" : "exact",
+    links: rows.map((row) => ({
+      memory_id: row.memory_id, reference: row.reference, relation: row.relation, created_at: row.created_at,
+      memory: {
+        id: row.memory_id, content: row.content, decision: row.decision ?? null, status: row.status,
+        category: row.category, topic: row.topic, created_at: row.memory_created_at,
+      },
+    })),
+  };
 }
 
 // ─── FTS5 search ──────────────────────────────────────────────────────────────

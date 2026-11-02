@@ -1,10 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { getDb, insertIdea, resolveIdea, listIdeas, getRecentIdeas, listProjects, createProject, updateProjectStatus, updateIdeaWorkflow, assignIdeaProject, deleteIdea } from "../db/index.js";
+import { getDb, insertIdea, resolveIdea, listIdeas, getRecentIdeas, listProjects, createProject, updateProjectStatus, updateIdeaWorkflow, assignIdeaProject, deleteIdea, addIdeaLink, removeIdeaLink, listIdeaLinks, listAllLinks, findLinksByReference, InvalidLinkError, isLinkRelation } from "../db/index.js";
 import type { IdeaRow } from "../db/index.js";
 import { recallIdeas } from "../recall/index.js";
 import { getGitContext } from "../git/index.js";
 import { v4 as uuidv4 } from "uuid";
-import type { IdeaPriority, IdeaCategory, Project, WorkflowStatus } from "../types.js";
+import type { IdeaPriority, IdeaCategory, LinkRelation, Project, WorkflowStatus } from "../types.js";
+import { LINK_RELATIONS } from "../types.js";
 import { inferTopic } from "../topic.js";
 import { getAiConfig, isAiConfigured, isAiUnlocked, lockAiConfig, redactedConfig, saveAiConfig, unlockAiConfig, providerById, updateAiConfig } from "../ai/config.js";
 import { generateArtifacts } from "../ai/generate.js";
@@ -50,6 +51,29 @@ function toClientIdea(row: IdeaRow) {
     outcome: row.outcome ?? null,
   };
 }
+
+/**
+ * One query parameter, percent-decoded without turning `+` into a space: reference
+ * URIs such as `git+https://…` contain a literal `+` and never contain spaces.
+ */
+function queryParam(req: IncomingMessage, name: string): string | undefined {
+  const query = (req.url ?? "").split("?")[1];
+  for (const pair of query?.split("&") ?? []) {
+    const [key, ...rest] = pair.split("=");
+    if (key !== name) continue;
+    try { return decodeURIComponent(rest.join("=")); }
+    catch { return undefined; }
+  }
+  return undefined;
+}
+
+/** Optional relation filter; `false` when present but not a known relation. */
+function relationParam(value: unknown): LinkRelation | undefined | false {
+  if (value === undefined || value === null || value === "") return undefined;
+  return isLinkRelation(value) ? value : false;
+}
+
+const RELATION_ERROR = `relation must be one of: ${LINK_RELATIONS.join(", ")}`;
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -211,6 +235,42 @@ const routes: Record<string, Record<string, Handler>> = {
       json(res, 200, { id, deleted: true });
     },
   },
+  "/api/ideas/:id/links": {
+    GET: async (req, res) => {
+      const id = (req as IncomingMessage & { _params?: Record<string, string> })._params?.id ?? "";
+      const db = getDb();
+      if (!db.prepare(`SELECT 1 FROM ideas WHERE id = ?`).get(id)) return err(res, 404, "memory not found");
+      json(res, 200, { memory_id: id, links: listIdeaLinks(db, id) });
+    },
+    POST: async (req, res, body) => {
+      const id = (req as IncomingMessage & { _params?: Record<string, string> })._params?.id ?? "";
+      const { reference, relation } = body as { reference?: string; relation?: string };
+      const rel = relationParam(relation);
+      if (rel === false) return err(res, 400, RELATION_ERROR);
+      const result = addIdeaLink(getDb(), id, reference ?? "", rel ?? "related");
+      if (!result) return err(res, 404, "memory not found");
+      json(res, result.created ? 201 : 200, { ...result.link, created: result.created });
+    },
+    DELETE: async (req, res) => {
+      const id = (req as IncomingMessage & { _params?: Record<string, string> })._params?.id ?? "";
+      const reference = queryParam(req, "reference");
+      if (!reference) return err(res, 400, "reference query parameter is required");
+      const rel = relationParam(queryParam(req, "relation"));
+      if (rel === false) return err(res, 400, RELATION_ERROR);
+      const removed = removeIdeaLink(getDb(), id, reference, rel);
+      if (!removed) return err(res, 404, "link not found");
+      json(res, 200, { memory_id: id, reference, relation: rel ?? null, removed });
+    },
+  },
+  "/api/links": {
+    GET: async (req, res) => {
+      const rel = relationParam(queryParam(req, "relation"));
+      if (rel === false) return err(res, 400, RELATION_ERROR);
+      const reference = queryParam(req, "reference");
+      if (reference === undefined) return json(res, 200, { links: listAllLinks(getDb(), rel) });
+      json(res, 200, findLinksByReference(getDb(), reference, rel));
+    },
+  },
   "/api/ai/config": {
     GET: async (_req, res) => json(res, 200, { configured: await isAiConfigured(), unlocked: isAiUnlocked(), config: isAiUnlocked() ? redactedConfig(getAiConfig()) : null }),
     POST: async (_req, res, body) => {
@@ -288,6 +348,7 @@ export async function handleApiRequest(
       [/^\/api\/projects\/([^/]+)\/status$/, "/api/projects/:id/status"],
       [/^\/api\/ideas\/([^/]+)\/workflow$/, "/api/ideas/:id/workflow"],
       [/^\/api\/ideas\/([^/]+)\/project$/, "/api/ideas/:id/project"],
+      [/^\/api\/ideas\/([^/]+)\/links$/, "/api/ideas/:id/links"],
       [/^\/api\/ideas\/([^/]+)$/, "/api/ideas/:id"],
     ];
     for (const [pattern, route] of patterns) {
@@ -305,6 +366,7 @@ export async function handleApiRequest(
     await handler(req, res, body);
   } catch (e) {
     if (e instanceof AiError) err(res, e.status, `${e.code}: ${e.message}`);
+    else if (e instanceof InvalidLinkError) err(res, 400, e.message);
     else err(res, 500, (e as Error).message);
   }
   return true;
