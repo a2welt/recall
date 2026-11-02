@@ -213,7 +213,8 @@ The phone can capture offline, receive a read-only encrypted library snapshot, g
 ## Privacy and security model
 
 - No account, advertising, analytics, or telemetry.
-- The desktop HTTP server binds to `127.0.0.1` only.
+- The desktop HTTP server binds to `127.0.0.1` only, and its REST API also refuses requests from other websites: it checks the Host and Origin headers and requires a session token. The bundled dashboard receives the token as an HttpOnly, SameSite=Strict cookie automatically.
+- To call the REST API from another local tool, start the server with `RECALL_API_TOKEN=<a long random value>` and send `Authorization: Bearer <that value>`. Without it, only the bundled dashboard can use the API.
 - Readable memories remain in local SQLite.
 - AI is disabled until the user configures a provider and explicitly generates an artifact.
 - Ollama provides an entirely local AI path.
@@ -228,6 +229,13 @@ Please report security issues according to [SECURITY.md](SECURITY.md).
 npm ci
 npm run build
 npm test
+```
+
+For UI development with hot reload, run the server and Vite with the same token, so Vite's proxy can authenticate:
+
+```bash
+RECALL_API_TOKEN=dev-token node dist/cli/index.js serve
+RECALL_API_TOKEN=dev-token npm run dev
 ```
 
 Worker development is separate:

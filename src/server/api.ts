@@ -263,7 +263,8 @@ export async function handleApiRequest(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<boolean> {
-  const url = req.url ?? "/";
+  // Route on the path alone: a query string must not turn a known route into a 404.
+  const url = (req.url ?? "/").split("?")[0] || "/";
   const method = req.method ?? "GET";
 
   if (method === "OPTIONS") {
