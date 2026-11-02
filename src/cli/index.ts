@@ -15,6 +15,9 @@ process.on("warning", (w) => {
  *   recall recall ["<query>"] [--limit <n>]
  *   recall list [--repo] [--open]
  *   recall resolve <id>
+ *   recall link <id> <reference> [--relation <r>]
+ *   recall unlink <id> <reference> [--relation <r>]
+ *   recall links [id] [--reference <uri>]
  *   recall digest
  *   recall mcp
  *   recall serve [--port <n>] [--open]
@@ -27,6 +30,7 @@ import { recallCommand } from "../commands/recall.js";
 import { listCommand } from "../commands/list.js";
 import { resolveCommand } from "../commands/resolve.js";
 import { detachCommand } from "../commands/detach.js";
+import { linkCommand, linksCommand, unlinkCommand } from "../commands/link.js";
 import { digestCommand } from "../commands/digest.js";
 import { mcpCommand } from "../commands/mcp-cmd.js";
 import { serveCommand } from "../commands/serve.js";
@@ -58,7 +62,7 @@ program
   .option("--why <text>", "Reasoning behind the decision")
   .option("--alternative <text>", "Rejected alternative; can be passed multiple times", collect, [])
   .option("--tradeoff <text>", "Known tradeoff; can be passed multiple times", collect, [])
-  .option("--evidence <text>", "Evidence, source, discussion, or observation")
+  .option("--evidence <text>", "Evidence, source, or reference URI; can be passed multiple times (one line each)", collect, [])
   .option("--outcome <text>", "Expected or observed outcome")
   .action(async (text: string, opts) => {
     await run(addIdea(text, opts));
@@ -107,6 +111,33 @@ program
   .description("Remove repository, branch, file, commit, and error context from a memory.")
   .action(async (id: string) => {
     await run(detachCommand(id));
+  });
+
+// ── recall link / unlink / links ─────────────────────────────────────────────
+program
+  .command("link <id> <reference>")
+  .description("Link a memory to a reference URI (receipt, code, model call, memory, …).")
+  .option("--relation <relation>", "constrains, explains, changed-by, supersedes, or related", "related")
+  .action(async (id: string, reference: string, opts) => {
+    await run(linkCommand(id, reference, opts));
+  });
+
+program
+  .command("unlink <id> <reference>")
+  .description("Remove a link from a memory (every relation, unless --relation is given).")
+  .option("--relation <relation>", "Only remove the link with this relation")
+  .action(async (id: string, reference: string, opts) => {
+    await run(unlinkCommand(id, reference, opts));
+  });
+
+program
+  .command("links [id]")
+  .description("List a memory's links, or with --reference the memories linked to a reference.")
+  .option("--reference <uri>", "Find memories linked to this reference (a code path without line range matches every range)")
+  .option("--relation <relation>", "Only this relation")
+  .option("--json", "Print JSON")
+  .action(async (id: string | undefined, opts) => {
+    await run(linksCommand(id, opts));
   });
 
 // ── recall digest ─────────────────────────────────────────────────────────────

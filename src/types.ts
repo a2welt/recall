@@ -99,6 +99,18 @@ export interface DecisionMetadata {
   outcome?: string | null;
 }
 
+// ─── Links to other tools ─────────────────────────────────────────────────────
+
+export const LINK_RELATIONS = ["constrains", "explains", "changed-by", "supersedes", "related"] as const;
+export type LinkRelation = (typeof LINK_RELATIONS)[number];
+
+export interface IdeaLink {
+  memory_id: string;
+  reference: string;
+  relation: LinkRelation;
+  created_at: string;
+}
+
 export interface RecallContext {
   repo?: string;
   branch?: string;

@@ -1,12 +1,13 @@
 /**
  * Recall MCP server — stdio transport.
  *
- * Exposes four tools for coding agents (Claude Code, Cursor, etc.):
+ * Exposes five tools for coding agents (Claude Code, Cursor, etc.):
  *
  *  - capture_idea      Store a thought / decision from within an agent session.
  *  - recall_ideas      Retrieve relevant past ideas for the current work context.
  *  - list_open_ideas   List unresolved threads, optionally scoped to a repo.
  *  - resolve_idea      Mark an idea as resolved.
+ *  - recall_link       Link a memory to a reference URI, or find memories by reference.
  *
  * Usage: `recall mcp` — drop into a Claude Code / Cursor MCP config as stdio.
  */
@@ -18,10 +19,11 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { v4 as uuidv4 } from "uuid";
-import { getDb, insertIdea, resolveIdea, listIdeas } from "../db/index.js";
+import { getDb, insertIdea, resolveIdea, listIdeas, addIdeaLink, removeIdeaLink, listIdeaLinks, findLinksByReference, resolveIdeaId, isLinkRelation } from "../db/index.js";
 import { recallIdeas } from "../recall/index.js";
 import { getGitContext } from "../git/index.js";
 import type { CaptureContext, GitContext, DecisionMetadata } from "../types.js";
+import { LINK_RELATIONS } from "../types.js";
 import type { RecallContext } from "../types.js";
 import { prepareSemanticQuery } from "../embed/semantic.js";
 
@@ -62,7 +64,12 @@ const TOOLS = [
             why: { type: "string", description: "Reasoning behind the decision." },
             alternatives: { type: "string", description: "Rejected alternatives and why they were rejected." },
             tradeoffs: { type: "string", description: "Known costs, risks, or compromises." },
-            evidence: { type: "string", description: "Observed evidence, PR/comment/source, or error context." },
+            evidence: {
+              type: "string",
+              description:
+                "Observed evidence, PR/comment/source, or error context. Reference URIs (agentproof:sha256:…, " +
+                "git+<url>@<commit>#<path>, recall:memory:<id>, <gateway>:request:<id>) on their own lines become links.",
+            },
             outcome: { type: "string", description: "Expected or observed result." },
           },
         },
@@ -125,6 +132,32 @@ const TOOLS = [
         },
       },
       required: ["id"],
+    },
+  },
+  {
+    name: "recall_link",
+    description:
+      "Link a memory to a shared reference URI, remove a link, list a memory's links, or find the memories " +
+      "linked to a reference. References: agentproof:sha256:<digest> (receipt), recall:memory:<id>, " +
+      "git+<url>@<40-hex commit>#<path>[:L<a>-L<b>] (code), <gateway>:request:<id> (model call), " +
+      "ballast://source/knowledge:<id>. Use `find` with a code reference without a line range to get every " +
+      "decision that mentions that file.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        action: {
+          type: "string",
+          enum: ["add", "remove", "list", "find"],
+          description: "add (default), remove, list (a memory's links), or find (memories linked to a reference).",
+        },
+        memory_id: { type: "string", description: "Memory id or unique prefix. Required for add, remove, and list." },
+        reference: { type: "string", description: "Reference URI. Required for add, remove, and find." },
+        relation: {
+          type: "string",
+          enum: [...LINK_RELATIONS],
+          description: "How the memory relates to the reference (default related). For remove and find, a filter.",
+        },
+      },
     },
   },
 ];
@@ -266,6 +299,40 @@ async function handleResolveIdea(args: { id: string }): Promise<string> {
   return JSON.stringify({ id: args.id, status: "resolved" });
 }
 
+/** Exported for testing against an in-memory database. */
+export async function handleRecallLink(args: {
+  action?: string;
+  memory_id?: string;
+  reference?: string;
+  relation?: string;
+}): Promise<string> {
+  const db = getDb();
+  const action = args.action ?? "add";
+  if (args.relation !== undefined && !isLinkRelation(args.relation)) {
+    return JSON.stringify({ error: `relation must be one of: ${LINK_RELATIONS.join(", ")}.` });
+  }
+  const relation = args.relation as Parameters<typeof addIdeaLink>[3];
+
+  if (action === "find") {
+    if (!args.reference) return JSON.stringify({ error: "reference is required for find." });
+    return JSON.stringify(findLinksByReference(db, args.reference, relation));
+  }
+  if (!["add", "remove", "list"].includes(action)) {
+    return JSON.stringify({ error: `Unknown action ${action}; use add, remove, list, or find.` });
+  }
+  const id = args.memory_id ? resolveIdeaId(db, args.memory_id) : undefined;
+  if (!id) return JSON.stringify({ error: `Memory ${args.memory_id ?? ""} not found.` });
+  if (action === "list") return JSON.stringify({ memory_id: id, links: listIdeaLinks(db, id) });
+  if (!args.reference) return JSON.stringify({ error: `reference is required for ${action}.` });
+  if (action === "remove") {
+    const removed = removeIdeaLink(db, id, args.reference, relation);
+    return JSON.stringify(removed ? { memory_id: id, reference: args.reference, removed } : { error: "Link not found." });
+  }
+  const result = addIdeaLink(db, id, args.reference, relation ?? "related");
+  if (!result) return JSON.stringify({ error: `Memory ${id} not found.` });
+  return JSON.stringify({ ...result.link, created: result.created });
+}
+
 // ─── Server bootstrap ─────────────────────────────────────────────────────────
 
 export async function startMcpServer(): Promise<void> {
@@ -303,6 +370,11 @@ export async function startMcpServer(): Promise<void> {
         case "resolve_idea":
           result = await handleResolveIdea(
             input as Parameters<typeof handleResolveIdea>[0]
+          );
+          break;
+        case "recall_link":
+          result = await handleRecallLink(
+            input as Parameters<typeof handleRecallLink>[0]
           );
           break;
         default:

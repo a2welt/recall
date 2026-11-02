@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
+import { migrateIdeaLinks } from "../src/db/index.js";
 
-export function createTestDb(): DatabaseSync {
+/** In-memory database; `links: false` leaves out idea_links, like a database from before links. */
+export function createTestDb(opts: { links?: boolean } = {}): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
@@ -55,6 +57,7 @@ export function createTestDb(): DatabaseSync {
     );
   `);
 
+  if (opts.links !== false) migrateIdeaLinks(db);
   return db;
 }
 
